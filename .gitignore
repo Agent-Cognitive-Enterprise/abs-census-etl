@@ -8,3 +8,6 @@ dist/
 /abs_out/
 /abs_cache/
 /data.zip
+
+# Local installer test logs, manifests and runner snapshots
+/docs/evidence/

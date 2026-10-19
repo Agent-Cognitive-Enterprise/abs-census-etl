@@ -7,6 +7,108 @@ CLI. It processes table parts such as `G04A` and `G04B` as one table, keyed on
 geography, with checks to prevent silent mismatches. Geography codes remain
 strings to retain leading zeros.
 
+## Install or update on Windows
+
+The managed installer currently targets native x64 Windows 10 (1803+)/11 with
+Windows PowerShell 5.1 (or PowerShell 7), the Windows .NET Framework, and `tar.exe`.
+Run it in a normal, non-administrator PowerShell window. Elevated runs are
+refused, including admin SSH sessions, the built-in Administrator account and
+admin accounts with UAC disabled. Use a non-administrator account for managed
+installation. It needs no Python, Git or environment activation.
+The commands require a published [GitHub release](docs/release-assets.md);
+if none exists, use [Setup](#setup) instead.
+
+Run this in PowerShell. Download a fresh installer every time, including
+updates and rollback:
+
+```powershell
+& { $installer = Join-Path $env:TEMP ('abs-census-etl-' + [guid]::NewGuid().ToString('N') + '.ps1'); $protocol = [Net.ServicePointManager]::SecurityProtocol; try { [Net.ServicePointManager]::SecurityProtocol = $protocol -bor 3072; Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/releases/latest/download/install.ps1' -OutFile $installer; & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer @args; if ($LASTEXITCODE -ne 0) { throw "Installer failed (exit $LASTEXITCODE)" } } finally { [Net.ServicePointManager]::SecurityProtocol = $protocol; Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue } }
+```
+
+Append options after the closing `}`: `-Parquet` for Parquet, `-Csv` to switch
+back, `-Version VERSION` to choose a release, or
+`-Prefix "$env:LOCALAPPDATA\My ETL" -BinDir "$env:LOCALAPPDATA\My tools"`.
+Always repeat a custom `-Prefix`. Format, repository and bin choices are saved;
+`-Version` applies only to that run, so repeat it to remain pinned. For a fork,
+replace the repository in the download URL and pass `-Repository OWNER/REPO`.
+A non-default source is announced before checking releases; reset with
+`-Repository Agent-Cognitive-Enterprise/abs-census-etl` explicitly.
+
+The private root defaults to `%LOCALAPPDATA%\abs-census-etl`, with
+`bin\abs-census-etl.exe` inside it. Run the printed full path using `&`:
+`& "$env:LOCALAPPDATA\abs-census-etl\bin\abs-census-etl.exe" --help`.
+The installer changes neither persistent PATH nor execution policy. The
+Bypass option above applies only to the child PowerShell process. The launcher
+preserves the working directory, arguments and application exit code.
+
+Installation verifies the same source/wheel SHA-256 assets and installs only
+locked dependency wheels and the verified app wheel. A small native launcher
+is compiled with Windows' existing .NET Framework tools; no compiler is
+downloaded and the Python application is not built. The private root stores
+launcher source/compiler-option and binary SHA256 hashes. Unchanged runs reuse
+the executable only when its actual bytes match that private record;
+version-resource text alone never authorizes reuse. Source or compiler-option
+changes rebuild the launcher. Its embedded root keeps the original spelling,
+including Unicode and case-sensitive paths. An atomic `active.json` selects
+prepared environments, including options. Old running jobs can finish across a
+launcher upgrade; stale owned launcher/pending files are cleaned on later runs
+once unlocked. Actual upgrades use a rename pair with a brief publication gap;
+unchanged-source runs leave the launcher in place.
+Failed preparation leaves the previous app usable. Healthy environments are
+reused for rollback, format switches and bin moves. Exports are never migrated.
+
+Folders the installer creates, including a custom bin folder and any missing
+parents, allow access only to your account and SYSTEM from the moment they
+exist; launcher files do too. An existing bin folder must not let other
+accounts add files, and no folder above the root or bin folder may let them
+rename, delete from, re-permission or own it. Otherwise the installer stops
+before changing anything. Folders under `%LOCALAPPDATA%` pass, as do new
+folders such as `C:\ETL` or `C:\Tools`. On a default Windows installation, an
+existing `C:\Tools` made in Explorer does not: it inherits modify rights for
+all signed-in users from `C:\`.
+
+Managed paths must be absolute local-drive paths without reparse points;
+UNC shares, junctions and symbolic links are refused. Other architectures are
+not currently implemented. Roots longer than 100 characters are refused to
+leave room for package paths without changing Windows long-path policy.
+Equivalent path letter case is accepted; 8.3 short-name aliases are not supported.
+
+Windows HTTPS downloads use the Windows trust store and default system proxy
+with the current account's proxy credentials. An explicit `HTTPS_PROXY` accepts
+URL credentials or a scheme-less `host:port` / `ip:port` (HTTP is assumed).
+For PowerShell downloads, comma-separated `NO_PROXY` host names/suffixes
+(or `*`) bypass it. Port-qualified entries, CIDR/IP ranges and `<local>` are
+unsupported; use explicit host names or IP addresses. uv applies its own proxy
+bypass rules to dependency downloads.
+uv uses Windows system certificates by default too. Standard proxy variables
+and `SSL_CERT_FILE` / `SSL_CERT_DIR` reach uv; `-UseNetworkEnv` additionally
+admits `PIP_CERT` and `UV_SYSTEM_CERTS`. Repeat that option on each run; network
+credentials are not saved. Index/build/environment overrides and
+external uv config remain isolated; alternate indexes are unsupported.
+Proxy authentication and TLS-inspection deployments require local verification;
+Windows integrated proxy authentication is not claimed for uv.
+
+Managed PCs may block the unsigned launcher compiled locally with the Windows
+.NET compiler, or executables in user-writable folders. Ask your IT team about
+approved installation methods if policy blocks it; the installer does not bypass
+AppLocker, Defender or application-control policy. If a launcher is damaged,
+choose a fresh `-BinDir`, or inspect and move the damaged file aside before
+rerunning. Close running jobs if Windows refuses a launcher update.
+
+For cleanup, close ETL jobs and check `active.json`: its `slot` names the
+folder to keep under `versions/`. Other versions may be removed with a file
+manager if rollback is no longer needed. Keep `python/` while retained
+environments use it. `cache/` is disposable when no installer is running.
+Windows releases/removes `.install-lock` when its handle closes, including a
+process crash. Child tools and their descendants are tied to the installer with
+a Windows Job Object. Incomplete unselected version/work folders may remain
+after abrupt termination; remove them only when no installer is running.
+Invalid active JSON is repairable by repeating the command; `settings.json`
+retains fallback choices.
+After a `-BinDir` move, remove the old launcher once the new one works.
+To uninstall, close jobs, remove any external launcher, then remove the marked
+private root containing `.abs-census-etl`. Data outside that root stays yours.
+
 ## Install or update on Linux/macOS
 
 `install.sh` installs and updates a private copy of the application.
@@ -46,9 +148,10 @@ it back explicitly. Network credentials are never written to settings.
 The managed installer currently accepts standard Python on native x86-64/ARM64
 Linux **glibc 2.28+** or **macOS 12+**. A new install defaults to CSV, with
 optional Parquet. Some older systems can run CSV dependencies through the
-source workflow below. Native macOS validation and a Windows installer are
-not available yet. The shell needs curl, tar and sha256sum (Linux) or shasum
-(macOS). No sudo, activation or shell-profile changes are needed.
+source workflow below. Native installation checks cover Linux x86-64 and
+macOS ARM64; Windows uses the PowerShell installer above. The shell needs
+curl, tar and sha256sum (Linux) or shasum (macOS). No sudo, activation or
+shell-profile changes are needed.
 
 Default files live in `~/.local/share/abs-census-etl`; the launcher is
 `~/.local/bin/abs-census-etl`. Use the printed full launcher path if its
@@ -105,8 +208,8 @@ pruning are performed.
 Download or clone this repository from GitHub, then open a terminal in its
 folder. This project is not published on PyPI. Python **3.14** is currently
 required; Linux validation uses Python 3.14.7. The managed Linux/macOS
-installer above is an alternative. Native macOS/Windows validation and the
-Windows installer remain later work.
+installers above are alternatives. Native smoke coverage includes Linux
+x86-64, macOS ARM64 and Windows 11 x64.
 
 Linux/macOS:
 
@@ -410,7 +513,8 @@ For example, macOS 11 and Ubuntu 18.04's glibc 2.27 lack the locked Parquet
 wheel, although CSV dependency wheels exist. Managed Python may impose
 additional OS limits. The managed Linux/macOS installer uses the stricter
 limits listed in [Install or update](#install-or-update-on-linuxmacos).
-Windows installation, compilation fallbacks and emulation are not validated.
+Other Windows architectures, compilation fallbacks and emulation are not
+validated. Native installer validation commands are listed below.
 The platform list describes wheel availability, not native CI coverage.
 
 To update dependency versions deliberately, maintainers run `uv lock --upgrade`
@@ -469,6 +573,52 @@ changes no real-user installation, shell profile, system Python or project
 environment.
 The installer/check files are checkout tooling and separate release assets;
 they are not part of the application sdist/wheel.
+
+For native Windows offline checks (development Python, no Pester or network):
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/test_windows_installer.ps1 -Python .venv\Scripts\python.exe
+```
+
+Keep `TEMP` inside your profile for Windows checks: test roots live under it,
+and the installer refuses folders that other accounts can modify. To also run
+the launcher beneath a case-sensitive folder, set `ABS_INSTALLER_CASE_PARENT`
+to an existing folder prepared with `fsutil file setCaseSensitiveInfo FOLDER
+enable` (elevated prompt); otherwise that probe prints a SKIP line.
+
+For a full Windows smoke, with development Python and uv available:
+
+```powershell
+.venv\Scripts\python.exe tests/check_windows_installer.py
+```
+
+The latter builds two temporary test releases, bootstraps the actual pinned
+uv/Python, checks CSV and Parquet, update/reuse/rollback, wrong installed
+version, failed preparation/publication and Windows file locks. Everything
+uses temporary roots; no profile, system Python or real installation is changed.
+Native test logs, tested file hashes and runner snapshots are local artifacts
+under `docs/evidence/`, excluded from Git. Use the commands below to validate
+your checkout; local evidence from earlier revisions does not validate later edits.
+The Windows host used restricted non-administrator tokens for these runs; a
+separate non-administrator account and enterprise proxy/TLS inspection remain
+unverified. For installer changes, run the required syntax check too:
+
+```bash
+.venv/bin/python tests/check_powershell_syntax.py
+```
+
+It fails with setup advice if no parser is installed; it never silently skips.
+Install PowerShell using [Microsoft's instructions][pwsh-install],
+or set `ABS_ETL_PWSH` to an existing executable. On Unix the check uses only
+that variable or `pwsh` on PATH. Neither tests nor installers download or retain
+this maintainer parser automatically. Unit discovery
+may skip parsing on other Unix machines without it; the required command above
+must pass before handing off Windows installer changes.
+
+The PowerShell check can also consume prepared artifacts using
+`tests/check_windows_installer.ps1 -ReleaseDir ABSOLUTE_PATH -Version VERSION
+-NextVersion NEXT_VERSION`. Windows installer tests are deliberately excluded
+from the application sdist; they run from the checkout or release test workspace.
 
 For packaging validation, with uv on PATH:
 
@@ -573,3 +723,5 @@ The offline uv configuration-guard test is skipped when `uv` is not on PATH.
   sum rates, medians or percentages as if they were additive.
 
 ABS DataPacks: https://www.abs.gov.au/census/find-census-data/datapacks
+
+[pwsh-install]: https://learn.microsoft.com/powershell/scripting/install/installing-powershell

@@ -29,6 +29,20 @@
 
 ### Added and corrected behavior
 
+- Windows PowerShell installer uses the same release assets and install/update
+  lifecycle. It bootstraps private Python, installs verified wheels, retains
+  saved choices, and atomically switches the active selection after validation.
+  Verifies cached launcher bytes against hashes saved in the private root,
+  includes compiler flags in rebuild identity and preserves literal root spelling.
+  New folders and launcher files have owner+SYSTEM permissions, and bin or
+  parent folders that other accounts can modify are refused. Upgrades let old
+  jobs finish; later runs clean unlocked owned temporary executables. Elevated
+  runs are refused; private Python registration is disabled. Windows locks
+  release on process exit and child process trees are tied to the installer
+  lifetime.
+  Installation needs no elevation, PATH edits or preinstalled Python/Git.
+  Native smoke coverage now includes Windows 11 x64 and macOS ARM64 alongside
+  Linux x86-64; application release publication remains separate work.
 - User-local Linux/macOS shell installer for first installation and repeated
   updates from versioned GitHub release assets. It verifies checksums, prepares
   a managed Python environment from locked dependency wheels and a verified
@@ -36,7 +50,7 @@
   the active version. Failed preparation retains the working installation; prior
   versions and user data remain. Saved options survive updates and healthy
   environments are reused for rollback and format changes. CSV defaults with
-  optional Parquet. Release publication and native macOS validation remain
+  optional Parquet. Release publication and broader native platform CI remain
   later work.
 - Installable single-module project with setuptools metadata and an
   `abs-census-etl` launcher. Source, module and installed launchers share CLI
