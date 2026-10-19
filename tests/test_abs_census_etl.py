@@ -104,6 +104,20 @@ def make_zip(path: Path, *, poa_g01: str = POA_G01,
 
 
 class CLIBoundaryTests(unittest.TestCase):
+    def test_module_and_script_use_the_public_program_name(self):
+        for command in ([sys.executable, '-m', 'abs_census_etl'],
+                        [sys.executable, str(ROOT / 'abs_census_etl.py')]):
+            for options in (['--help'], ['--unknown-option']):
+                with self.subTest(command=command, options=options):
+                    result = subprocess.run([*command, *options], cwd=ROOT,
+                                            capture_output=True, text=True)
+                    output = result.stdout + result.stderr
+                    self.assertIn('usage: abs-census-etl ', output)
+                    self.assertNotIn('usage: python ', output)
+                    if options == ['--help']:
+                        self.assertIn('    abs-census-etl --geo POA', output)
+                        self.assertNotIn('python abs_census_etl.py', output)
+
     def test_cli_preserves_error_notes(self):
         error = OSError("publication failed")
         error.add_note("Keep the recovery journal")
@@ -1113,7 +1127,8 @@ print(json.dumps([stat.S_IMODE(paths["G01"].stat().st_mode),
                 with self.assertRaisesRegex(ValueError, "Parquet export needs") as caught:
                     export_census(file_format="parquet", out=self.base / "missing_engine")
         message = str(caught.exception)
-        for advice in ("parquet extra", "Setup for pip", "Platforms and development for uv",
+        for advice in ("parquet extra", "Install or update for managed installs",
+                       "Setup for pip", "Platforms and development for uv",
                        "--format csv", "file_format='csv'"):
             self.assertIn(advice, message)
         self.assertNotIn("pip install", message)

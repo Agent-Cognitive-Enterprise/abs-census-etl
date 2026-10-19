@@ -7,12 +7,106 @@ CLI. It processes table parts such as `G04A` and `G04B` as one table, keyed on
 geography, with checks to prevent silent mismatches. Geography codes remain
 strings to retain leading zeros.
 
+## Install or update on Linux/macOS
+
+`install.sh` installs and updates a private copy of the application.
+The commands below require a published GitHub Release containing the
+[release assets](docs/release-assets.md). If there is no published release,
+use [Setup](#setup) to install from source.
+
+Download a fresh installer on **every install or update**, including rollback.
+This gets current installer fixes and bootstrap pins. The same command works
+for first installation and updates; Python and Git need not be installed.
+
+```bash
+sh -c 'installer=$(mktemp) || exit; trap '\''rm -f "$installer"'\'' 0; curl -fsSL --proto "=https" --proto-redir "=https" -o "$installer" https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/releases/latest/download/install.sh && sh "$installer" "$@"' install-abs-census-etl
+```
+
+For options, append them to that same download command, after
+`install-abs-census-etl`. For example, append `--parquet` to include Parquet,
+`--version VERSION` to select a published version (including rollback), or
+`--prefix "$HOME/apps/abs-census-etl" --bin-dir "$HOME/bin"` for custom paths.
+Always pass a custom `--prefix` again so the installer can find that root.
+Do not update by rerunning an old saved copy of install.sh. For a fork,
+replace the repository in the download URL with that fork and append
+`--repository OWNER/REPO` on first installation. Keep downloading that fork's
+fresh installer on updates. Every non-default repository is announced before
+checking or downloading releases. If GitHub redirects the latest lookup to a
+renamed repository, the installer also names it before downloading.
+To return to upstream, append
+`--repository Agent-Cognitive-Enterprise/abs-census-etl` explicitly.
+A version selection applies to that run: after rollback with `--version`, a
+plain command checks latest again. Repeat `--version VERSION` to stay pinned.
+
+The chosen format, repository and bin directory are saved in the installation
+root and reused unless explicitly overridden. Thus the no-option download
+command preserves an existing default-root Parquet install; `--csv` switches
+it back explicitly. Network credentials are never written to settings.
+
+The managed installer currently accepts standard Python on native x86-64/ARM64
+Linux **glibc 2.28+** or **macOS 12+**. A new install defaults to CSV, with
+optional Parquet. Some older systems can run CSV dependencies through the
+source workflow below. Native macOS validation and a Windows installer are
+not available yet. The shell needs curl, tar and sha256sum (Linux) or shasum
+(macOS). No sudo, activation or shell-profile changes are needed.
+
+Default files live in `~/.local/share/abs-census-etl`; the launcher is
+`~/.local/bin/abs-census-etl`. Use the printed full launcher path if its
+directory is not on PATH. Keep exports and caches outside managed folders.
+The launcher uses the caller's working directory and arguments. After a
+`--bin-dir` move, the previous launcher remains and still uses the same active
+environment. Once the new launcher works, remove the old launcher file from
+its previous bin directory to avoid ambiguous PATH entries.
+
+Checksums are verified for both source metadata/lock and the application wheel.
+Only locked dependency wheels and the verified app wheel are installed;
+installation never builds the app or downloads build tools. A prepared
+environment is smoke-tested before the active pointer switches atomically.
+Healthy matching environments are reused for rollback, format switches,
+repairs and bin-directory changes. Reuse requires the same repository,
+version, format and platform. A fork's same-numbered version is separate.
+Failed preparation preserves the previous active environment and user data.
+An invalid pointer is repairable by repeating the download command.
+
+Corporate networks: standard proxy variables and `SSL_CERT_FILE` /
+`SSL_CERT_DIR` are preserved. Add `--use-network-env` to explicitly allow
+`PIP_CERT` as a certificate bundle and `UV_SYSTEM_CERTS` for uv's system trust
+store. Reapply that option on each download command; credentials are not saved.
+Index overrides and user/system uv configuration are isolated even with this
+option. Alternative package indexes are not supported: the release lock uses
+PyPI URLs. Corporate access supports certificates and proxies; a transparent
+proxy can serve those existing locked URLs. For curl, use its normal proxy
+and `CURL_CA_BUNDLE` settings.
+See [uv certificates](https://docs.astral.sh/uv/concepts/authentication/certificates/)
+and [locked syncing](https://docs.astral.sh/uv/concepts/projects/sync/).
+
+An installation lock excludes concurrent runs in one root. SIGKILL/power loss
+can leave `.install-lock` or unselected version folders. Inspect its `pid`
+and confirm no installer is running before removing a stale lock. Do not
+remove a live install's lock. Keep different installations' bin directories
+separate; the installer refuses a launcher owned by another root.
+
+To reclaim space, close running ETL jobs and open the installation root in a
+file manager. The `active` file names the environment to **keep** under
+`versions/`; other release folders may be removed if rollback is no longer
+needed. Remove orphan `.install.*` folders only when no installer is running.
+The `cache/` folder is disposable when installation is idle. Keep `python/`:
+retained environments may still need its interpreters.
+
+To uninstall, close running jobs, remove the printed `abs-census-etl` launcher
+from its bin directory, then remove the marked application root (containing
+`.abs-census-etl`) with your file manager. Check custom paths first. This
+removes all managed versions, tools and Python copies; exports and caches
+stored outside that root remain yours. No background updates or automatic
+pruning are performed.
+
 ## Setup
 
 Download or clone this repository from GitHub, then open a terminal in its
 folder. This project is not published on PyPI. Python **3.14** is currently
-required; Linux validation uses Python 3.14.7. Native Windows/macOS validation
-and the beginner install/update scripts are planned in later slices.
+required; Linux validation uses Python 3.14.7. The managed Linux/macOS
+installer above is an alternative. Native macOS/Windows validation and the
+Windows installer remain later work.
 
 Linux/macOS:
 
@@ -146,8 +240,9 @@ working directory, use the absolute path to that environment's launcher.
 
 CSV is the default for both the API and CLI. For Parquet, install the
 `parquet` extra (`.[parquet]` in Setup for pip, or `--extra parquet` with uv
-in Platforms and development), then pass `file_format="parquet"` in Python or
-`--format parquet` on the CLI.
+in Platforms and development; managed installs rerun install.sh with
+`--parquet`), then pass `file_format="parquet"` in Python or `--format parquet`
+on the CLI.
 
 **Default format change (unreleased):** CSV replaces the earlier Parquet
 default. No numbered release has been published; the project metadata uses an
@@ -313,11 +408,10 @@ the Intel 10.15+ CSV row does not apply to 3.14t.
 
 For example, macOS 11 and Ubuntu 18.04's glibc 2.27 lack the locked Parquet
 wheel, although CSV dependency wheels exist. Managed Python may impose
-additional OS limits. Installer behavior for combinations without wheels
-remains an owner decision for slices 3/4: options include refusal, CSV-only
-fallback, or x64 Python under emulation on Windows ARM64. None is selected
-here. The final supported platform list still needs native CI evidence;
-compilation fallbacks and emulation are not validated here.
+additional OS limits. The managed Linux/macOS installer uses the stricter
+limits listed in [Install or update](#install-or-update-on-linuxmacos).
+Windows installation, compilation fallbacks and emulation are not validated.
+The platform list describes wheel availability, not native CI coverage.
 
 To update dependency versions deliberately, maintainers run `uv lock --upgrade`
 and repeat the tests below. Ordinary `uv sync --locked` refuses an outdated
@@ -345,6 +439,36 @@ Windows PowerShell:
 .venv\Scripts\python.exe -m unittest discover -s tests -v
 .venv\Scripts\python.exe tests/check_mutations.py
 ```
+
+Installer lifecycle tests run offline as part of discovery on POSIX under a
+normal user. Windows/root skip those tests. To run them alone:
+
+```bash
+.venv/bin/python -m unittest tests.test_installer -v
+```
+
+They use temporary homes, staged archives and a trusted local uv double to
+exercise saved options, reuse, version checks, environment isolation,
+repeat/update/failure/interruption, checksum/archive guards, concurrency,
+literal path/argument handling and data preservation. They do not
+prove package-manager or native macOS behavior. The actual bootstrap smoke is:
+
+```bash
+.venv/bin/python tests/check_installer.py
+```
+
+That additional check uses the network, builds temporary test-only release
+artifacts and runs the real pinned uv/managed Python installer under a private
+HOME. It tests first/repeated installs, updates, failure preservation, offline
+CSV leading zeros, optional Parquet and cached rollback. The real resolver
+also checks a live GitHub latest redirect (pandas, NumPy or Requests; at
+least one must resolve), and bootstrap downloads real upstream uv assets.
+Application assets use temporary local releases; the published project's asset
+route still needs validation once a release exists. It publishes nothing and
+changes no real-user installation, shell profile, system Python or project
+environment.
+The installer/check files are checkout tooling and separate release assets;
+they are not part of the application sdist/wheel.
 
 For packaging validation, with uv on PATH:
 
@@ -393,8 +517,8 @@ When adding release files, update `MANIFEST.in` and `SOURCE_FILES` in
 `tests/check_packaging.py` together. The real-checkout build catches unlisted
 files included by the manifest; matching decoys exercise exclusion in the
 controlled tree too. Development checks accept private file modes from a
-strict local umask. Release permission normalization/validation belongs to
-slice 5, along with the remaining release validation.
+strict local umask. Before publishing, normalize and validate permissions in
+a clean release build so archive contents are readable by their recipients.
 
 To build artifacts yourself (without publishing):
 

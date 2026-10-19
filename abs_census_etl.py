@@ -8,7 +8,8 @@ code. Geographic identifiers are kept as strings to preserve leading zeros.
 
 Dependencies: see README.md for the tested Python environment
 Optional Parquet exports: install the project's parquet extra; see README.md
-(Setup for pip, Platforms and development for uv).
+(Install or update for managed installs, Setup for pip, Platforms and
+development for uv).
 
 Python API::
 
@@ -26,9 +27,9 @@ work fully offline. Otherwise the DataPack is downloaded and cached in
 
 CLI examples::
 
-    python abs_census_etl.py --geo POA --state NSW --tables G01 G02 --out out
-    python abs_census_etl.py --geo SA1 --state NSW --tables G01 --out out
-    python abs_census_etl.py --zip local.zip --geo POA --tables G04 --long \
+    abs-census-etl --geo POA --state NSW --tables G01 G02 --out out
+    abs-census-etl --geo SA1 --state NSW --tables G01 --out out
+    abs-census-etl --zip local.zip --geo POA --tables G04 --long \
         --format csv --out out
 
 Census 2021 uses ASGS Edition 3 boundaries. Do not treat ABS Postal Areas as
@@ -65,13 +66,14 @@ VALID_GEOS = {"POA", "SA1"}
 VALID_STATES = {"AUS", "NSW", "VIC", "QLD", "SA", "WA", "TAS", "NT", "ACT", "OT"}
 PARQUET_ENGINE_HELP = (
     "Parquet export needs pyarrow or fastparquet. Install the project's parquet "
-    "extra as shown in README.md (Setup for pip, Platforms and development for uv). "
+    "extra as shown in README.md (Install or update for managed installs, "
+    "Setup for pip, Platforms and development for uv). "
     "Or use --format csv (CLI) / file_format='csv' (Python)."
 )
 
 
 def args_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__,
+    parser = argparse.ArgumentParser(prog="abs-census-etl", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--geo", choices=sorted(VALID_GEOS), required=True)
     parser.add_argument("--state", default="NSW", choices=sorted(VALID_STATES))

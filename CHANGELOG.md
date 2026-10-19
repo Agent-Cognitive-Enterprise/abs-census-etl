@@ -29,6 +29,15 @@
 
 ### Added and corrected behavior
 
+- User-local Linux/macOS shell installer for first installation and repeated
+  updates from versioned GitHub release assets. It verifies checksums, prepares
+  a managed Python environment from locked dependency wheels and a verified
+  application wheel, without user-side builds, and smoke-tests before switching
+  the active version. Failed preparation retains the working installation; prior
+  versions and user data remain. Saved options survive updates and healthy
+  environments are reused for rollback and format changes. CSV defaults with
+  optional Parquet. Release publication and native macOS validation remain
+  later work.
 - Installable single-module project with setuptools metadata and an
   `abs-census-etl` launcher. Source, module and installed launchers share CLI
   errors, warning output and recovery notes. Distribution remains GitHub-only.

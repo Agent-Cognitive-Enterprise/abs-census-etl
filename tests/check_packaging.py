@@ -238,8 +238,14 @@ assert importlib.util.find_spec('fastparquet') is None
     run([str(python), "-I", "-c", probe, version, "yes" if parquet else "no"],
         cwd=outside, env=env)
     for command in ([str(launcher)], [str(python), "-I", "-m", "abs_census_etl"]):
-        require("--geo" in run([*command, "--help"], cwd=outside, env=env),
-                f"Missing CLI help: {command}")
+        help_text = run([*command, "--help"], cwd=outside, env=env)
+        require("usage: abs-census-etl " in help_text and
+                "    abs-census-etl --geo POA" in help_text and
+                "python abs_census_etl.py" not in help_text,
+                f"Incorrect CLI help: {command}: {help_text}")
+        bad_option = run([*command, "--unknown-option"], cwd=outside, env=env, expected=2)
+        require("usage: abs-census-etl " in bad_option and
+                "abs-census-etl: error:" in bad_option, bad_option)
         failure = run([*command, "--geo", "POA", "--state", "NT", "--zip", "nt.zip",
                        "--codes", "bad"],
                       cwd=outside, env=env, expected=1)
@@ -269,7 +275,8 @@ assert importlib.util.find_spec('fastparquet') is None
                        "--format", "parquet"],
                       cwd=outside, env=env, expected=1)
         require(all(text in failure for text in (
-            "Parquet export needs", "parquet extra", "Setup for pip",
+            "Parquet export needs", "parquet extra", "Install or update for managed installs",
+            "Setup for pip",
             "Platforms and development for uv", "--format csv",
             "file_format='csv'")) and "Traceback" not in failure, failure)
     print(f"PASS: {label} (imports, launchers, diagnostics, CSV"
