@@ -29,6 +29,12 @@
 
 ### Added and corrected behavior
 
+- Installable single-module project with setuptools metadata and an
+  `abs-census-etl` launcher. Source, module and installed launchers share CLI
+  errors, warning output and recovery notes. Distribution remains GitHub-only.
+- Python 3.14 is the declared support range. Runtime dependencies are defined
+  in `pyproject.toml`, with a portable `uv.lock` for repeatable installs and a
+  separate optional `parquet` extra. Build tooling is resolved separately.
 - POA filters accept bare/prefixed codes, whitespace/case variations, integers
   and finite whole-number floats; output identifiers retain their source form.
   Malformed inputs fail before archive access. Missing selections remain

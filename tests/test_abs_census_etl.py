@@ -32,6 +32,7 @@ sys.path.insert(0, str(ROOT))
 RUNNING_AS_ROOT = getattr(os, "geteuid", lambda: -1)() == 0
 
 from abs_census_etl import (  # noqa: E402
+    cli,
     combine_table,
     find_members,
     datapack_url,
@@ -100,6 +101,25 @@ def make_zip(path: Path, *, poa_g01: str = POA_G01,
         for member, csv in members.items():
             z.writestr(member, csv)
     return path
+
+
+class CLIBoundaryTests(unittest.TestCase):
+    def test_cli_preserves_error_notes(self):
+        error = OSError("publication failed")
+        error.add_note("Keep the recovery journal")
+        with patch("abs_census_etl.main", side_effect=error), \
+                patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            self.assertEqual(cli(), 1)
+        self.assertEqual(stderr.getvalue(),
+                         "ERROR: publication failed\nKeep the recovery journal\n")
+
+    def test_cli_reports_real_invalid_input(self):
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            status = cli(["--geo", "POA", "--codes", "bad",
+                          "--zip", "missing-offline.zip"])
+        self.assertEqual(status, 1)
+        self.assertIn("ERROR: Invalid POA", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
 
 
 class ABSModuleTests(unittest.TestCase):
@@ -1090,8 +1110,14 @@ print(json.dumps([stat.S_IMODE(paths["G01"].stat().st_mode),
     def test_missing_parquet_engines_fail_before_source_access(self):
         with patch("abs_census_etl.find_spec", return_value=None):
             with patch("abs_census_etl._resolve_source", side_effect=AssertionError("source accessed")):
-                with self.assertRaisesRegex(ValueError, "Parquet export needs"):
+                with self.assertRaisesRegex(ValueError, "Parquet export needs") as caught:
                     export_census(file_format="parquet", out=self.base / "missing_engine")
+        message = str(caught.exception)
+        for advice in ("parquet extra", "Setup for pip", "Platforms and development for uv",
+                       "--format csv", "file_format='csv'"):
+            self.assertIn(advice, message)
+        self.assertNotIn("pip install", message)
+        self.assertNotIn("remove build", message)
         self.assertFalse((self.base / "missing_engine").exists())
         for available in ["pyarrow", "fastparquet"]:
             with self.subTest(available=available):

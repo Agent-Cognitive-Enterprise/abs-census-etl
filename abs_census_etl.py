@@ -7,7 +7,8 @@ lettered parts, such as G04A/G04B, are automatically joined on the geographic
 code. Geographic identifiers are kept as strings to preserve leading zeros.
 
 Dependencies: see README.md for the tested Python environment
-Optional Parquet exports: pip install pyarrow
+Optional Parquet exports: install the project's parquet extra; see README.md
+(Setup for pip, Platforms and development for uv).
 
 Python API::
 
@@ -62,8 +63,11 @@ BASE_URL = "https://www.abs.gov.au/census/find-census-data/datapacks/download"
 MISSING = {"", "..", "...", "-", "np", "n.p.", "na", "n/a", "null", "none"}
 VALID_GEOS = {"POA", "SA1"}
 VALID_STATES = {"AUS", "NSW", "VIC", "QLD", "SA", "WA", "TAS", "NT", "ACT", "OT"}
-PARQUET_ENGINE_HELP = ("Parquet export needs pyarrow or fastparquet; install recommended "
-                       "pyarrow: pip install pyarrow (or use file_format='csv')")
+PARQUET_ENGINE_HELP = (
+    "Parquet export needs pyarrow or fastparquet. Install the project's parquet "
+    "extra as shown in README.md (Setup for pip, Platforms and development for uv). "
+    "Or use --format csv (CLI) / file_format='csv' (Python)."
+)
 
 
 def args_parser() -> argparse.ArgumentParser:
@@ -766,11 +770,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-if __name__ == "__main__":
+def cli(argv: Sequence[str] | None = None) -> int:
+    """Run the command with the same diagnostics for every launch method."""
     try:
-        raise SystemExit(main())
+        return main(argv)
     except (OSError, ValueError, requests.RequestException, BadZipFile) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         for note in getattr(exc, "__notes__", ()):
             print(note, file=sys.stderr)
-        raise SystemExit(1) from exc
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(cli())

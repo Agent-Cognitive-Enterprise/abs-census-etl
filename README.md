@@ -9,35 +9,46 @@ strings to retain leading zeros.
 
 ## Setup
 
-The verified environment is **Python 3.14.7**, pandas 3.0.6, and requests
-2.34.2 (with pyarrow 26.0.0 for Parquet). Other Python/dependency versions
-have not yet been validated; a broader support matrix and lockfile are planned
-in slice 2.
-
-With Python 3.14 installed, open a terminal in the project directory and
-create the project environment first.
+Download or clone this repository from GitHub, then open a terminal in its
+folder. This project is not published on PyPI. Python **3.14** is currently
+required; Linux validation uses Python 3.14.7. Native Windows/macOS validation
+and the beginner install/update scripts are planned in later slices.
 
 Linux/macOS:
 
 ```bash
 python3.14 -m venv .venv
-.venv/bin/python -m pip install "pandas==3.0.6" "requests==2.34.2"
-# Optional Parquet engine:
-.venv/bin/python -m pip install "pyarrow==26.0.0"
+.venv/bin/python -m pip install .
+# Optional Parquet support (run instead of, or after, the command above):
+.venv/bin/python -m pip install ".[parquet]"
 ```
 
 Windows PowerShell:
 
 ```powershell
 py -3.14 -m venv .venv
-.venv\Scripts\python.exe -m pip install "pandas==3.0.6" "requests==2.34.2"
-# Optional Parquet engine:
-.venv\Scripts\python.exe -m pip install "pyarrow==26.0.0"
+.venv\Scripts\python.exe -m pip install .
+# Optional Parquet support (run instead of, or after, the command above):
+.venv\Scripts\python.exe -m pip install ".[parquet]"
 ```
 
-Save `abs_census_etl.py` in your project or add its directory to your Python
-path. Importing the module does **not** download anything, create files, or
-execute CLI code.
+No environment activation is required. These commands install this local
+project and its dependencies, making the module and CLI available in that
+virtual environment from any working directory. After a `git pull` or
+replacing the source with a GitHub download (including an older version),
+rerun the same install command with that environment's Python:
+`python -m pip install .`, or `python -m pip install ".[parquet]"` for Parquet.
+Pip copies the code
+into the environment: until you reinstall, the installed launcher and imports
+outside the checkout still use the old copy, while running the source script
+uses the updated checkout. The project's `setup.cfg` forces source copies to
+refresh on every build, including when an older download has older timestamps.
+No manual build deletion is needed. Importing the module does
+**not** download anything, create files, or execute CLI code.
+
+For an exact locked development environment managed by uv instead, see
+[Platforms and development](#platforms-and-development). Use either these pip
+commands or uv for a given `.venv`, not both.
 
 ## Use from Python
 
@@ -122,22 +133,26 @@ when the geographic codes happen to match.
 ## CLI
 
 ```bash
-.venv/bin/python abs_census_etl.py --geo POA --state NSW --tables G01 G02 --out abs_out
-.venv/bin/python abs_census_etl.py --geo SA1 --state NSW --tables G01 --format csv
-.venv/bin/python abs_census_etl.py --zip data.zip --geo POA --tables G04 --long --format csv
-.venv/bin/python abs_census_etl.py --zip data.zip --geo POA --tables G01 --list-columns
+.venv/bin/abs-census-etl --geo POA --state NSW --tables G01 G02 --out abs_out
+.venv/bin/abs-census-etl --geo SA1 --state NSW --tables G01 --format csv
+.venv/bin/abs-census-etl --zip data.zip --geo POA --tables G04 --long --format csv
+.venv/bin/abs-census-etl --zip data.zip --geo POA --tables G01 --list-columns
 ```
 
-On Windows, replace `.venv/bin/python` in the CLI examples with
-`.venv\Scripts\python.exe`. No environment activation is required.
+On Windows, use `.venv\Scripts\abs-census-etl.exe` instead. From another
+working directory, use the absolute path to that environment's launcher.
+`python -m abs_census_etl` also works with the environment's Python; direct
+`python abs_census_etl.py` use from the checkout remains supported.
 
-CSV is the default for both the API and CLI. For Parquet, install `pyarrow`
-and pass `file_format="parquet"` in Python or `--format parquet` on the CLI.
+CSV is the default for both the API and CLI. For Parquet, install the
+`parquet` extra (`.[parquet]` in Setup for pip, or `--extra parquet` with uv
+in Platforms and development), then pass `file_format="parquet"` in Python or
+`--format parquet` on the CLI.
 
 **Default format change (unreleased):** CSV replaces the earlier Parquet
-default. No numbered release has been established yet; slice 2 will define
-version metadata. If you previously exported Parquet, either keep passing
-`--format parquet` / `file_format="parquet"`, or choose a fresh output
+default. No numbered release has been published; the project metadata uses an
+initial development version. If you previously exported Parquet, either keep
+passing `--format parquet` / `file_format="parquet"`, or choose a fresh output
 directory for CSV. Export refuses to write when another format exists for the
 same requested geography/state/table, in either wide or long form. It checks
 all requested tables before accessing the source archive or downloading, and
@@ -249,6 +264,67 @@ can hold full-size `.part` payloads. Delete them when no export is running, sinc
 export still in progress also has such a folder. Extra staging/backup space
 is required.
 
+## Platforms and development
+
+Dependency ranges and the initial development version are defined in
+`pyproject.toml`. Pip resolves those ranges; it does not read `uv.lock`.
+For the exact locked environment, [install uv][uv-install] **0.12.21 or newer**.
+The pip Setup above and this uv workflow both use the checkout's `.venv`, so
+choose one of them for that environment. Once uv manages `.venv`, update it
+with the `uv sync` command below instead of the Setup pip commands. To return
+to pip, recreate the environment with `python3.14 -m venv --clear .venv`
+(Windows: `py -3.14 -m venv --clear .venv`) and follow Setup.
+From the project directory:
+
+```bash
+uv sync --locked --python 3.14 --extra parquet
+```
+
+`uv sync` manages that checkout's `.venv` exactly: it removes packages not
+selected by the lock and command's extras, including unrelated pip-installed
+packages. Omitting `--extra parquet` removes pyarrow and skips Parquet tests.
+The development command above includes it for full coverage. `uv` installs
+the local project in editable mode.
+The lock pins all runtime dependencies, including the optional Parquet engine;
+CSV installs omit that engine. The current lock selects pandas 3.0.6,
+requests 2.34.2 and pyarrow 26.0.0. Build tooling is declared separately in
+`pyproject.toml`; it is not pinned by the runtime lock. A lock containing
+multiple platforms does not establish native platform support.
+
+The following limits apply to **standard, non-free-threaded CPython 3.14**
+binary wheel tags in the
+[current lock](uv.lock); they are not native platform test results. A missing
+wheel can trigger a source build requiring compilers and system libraries.
+That is outside the beginner setup path.
+
+| Platform | CSV dependency wheels | With Parquet |
+| --- | --- | --- |
+| Windows x86-64 | Available | Available |
+| Windows ARM64 | Available | No pyarrow wheel |
+| Windows 32-bit | No pandas wheel | No pandas/pyarrow wheels |
+| macOS Intel | macOS 10.15+ | macOS 12+ |
+| macOS Apple Silicon | macOS 11+ | macOS 12+ |
+| Linux x86-64 / ARM64, glibc | glibc 2.27+ | glibc 2.28+ |
+| Linux x86-64 / ARM64, musl | musl 1.2+ | musl 1.2+ |
+
+Free-threaded Python 3.14t is not validated; its wheel limits differ. In
+particular, locked numpy 3.14t wheels for Intel macOS require macOS 14+, so
+the Intel 10.15+ CSV row does not apply to 3.14t.
+
+For example, macOS 11 and Ubuntu 18.04's glibc 2.27 lack the locked Parquet
+wheel, although CSV dependency wheels exist. Managed Python may impose
+additional OS limits. Installer behavior for combinations without wheels
+remains an owner decision for slices 3/4: options include refusal, CSV-only
+fallback, or x64 Python under emulation on Windows ARM64. None is selected
+here. The final supported platform list still needs native CI evidence;
+compilation fallbacks and emulation are not validated here.
+
+To update dependency versions deliberately, maintainers run `uv lock --upgrade`
+and repeat the tests below. Ordinary `uv sync --locked` refuses an outdated
+lock rather than silently updating it. No `requirements.txt` is needed.
+
+[uv-install]: https://docs.astral.sh/uv/getting-started/installation/
+
 ## Tests
 
 The tests generate synthetic ABS-style ZIP archives in temporary directories,
@@ -270,10 +346,72 @@ Windows PowerShell:
 .venv\Scripts\python.exe tests/check_mutations.py
 ```
 
-Both commands use the project environment. The dedicated POSIX data-mode
-mutation is explicitly skipped on platforms without POSIX mode semantics;
-skipped probes are not counted as caught. The mutation script reports missing
-dependencies as a setup error before trying any mutations.
+For packaging validation, with uv on PATH:
+
+```bash
+.venv/bin/python tests/check_packaging.py
+```
+
+On Windows use `.venv\Scripts\python.exe tests/check_packaging.py`.
+This additional check may download tools and dependencies from public PyPI.
+It isolates user/system uv configuration in temporary config directories and
+clears inherited `UV_*`/`PIP_*` settings, while keeping project `[tool.uv]`
+settings active. Only uv commands see the redirected config directories.
+Every command runs under a work folder whose empty `uv.toml` ends uv's
+parent-directory search, so a `uv.toml` planted in a shared folder such as
+`/tmp` is ignored. Each run plants a hostile `uv.toml` above that folder to
+prove it. A configuration probe verifies that an impossible
+required-version is refused and an exclude-newer lock sync works.
+Remove generated `build/` and `abs_census_etl.egg-info/` first if present; the
+check refuses to delete pre-existing directories. It builds controlled inputs
+with nine decoys (including abs_cache/) and a graft-everything negative
+control, then builds the **actual checkout** and checks both artifact sets
+against exact file lists. Only build/metadata created by the check is removed.
+The checkout's unrelated data is not copied into the controlled build tree.
+Selected controlled inputs with symlinked files/parents are refused.
+
+The actual checkout's sdist supplies isolated locked source environments and
+its wheel installs in independent empty environments, each with and without
+Parquet. Probes check imports, CLI help/errors and CSV/Parquet exports outside
+the checkout. The full offline unit suite also runs from the extracted sdist
+with Parquet installed. A separate pip probe seeds a stale build copy, changes
+source with an older timestamp and retains the stale build copy, then verifies
+repeating the same pip command installs the changed source without cleanup.
+This probe uses the extracted sdist's build settings.
+
+Environments and final artifacts are temporary. The actual-checkout build
+creates build/ and project egg-info while running and removes them afterwards;
+the user's `.venv` is not synced.
+Export probes always use a local ZIP. To check the complete packaging flow
+under optimization, run `.venv/bin/python -O tests/check_packaging.py`.
+Offline helper tests alone do not establish optimized build/install behavior.
+The online negative control proves real decoy leaks are detectable; the
+small offline decoy test only checks placeholder disjointness and preservation
+of build inputs.
+
+When adding release files, update `MANIFEST.in` and `SOURCE_FILES` in
+`tests/check_packaging.py` together. The real-checkout build catches unlisted
+files included by the manifest; matching decoys exercise exclusion in the
+controlled tree too. Development checks accept private file modes from a
+strict local umask. Release permission normalization/validation belongs to
+slice 5, along with the remaining release validation.
+
+To build artifacts yourself (without publishing):
+
+```bash
+uv build --python 3.14
+```
+
+The source archive includes the project definition, lockfile and tests. The
+wheel contains the module, CLI entry point and distribution metadata; it does
+not embed the dependency lock. Install the source with `uv sync --locked` for
+locked dependencies. Choosing a license remains an owner decision before
+public release.
+
+Both offline test commands use the project environment. The dedicated POSIX
+data-mode mutation is explicitly skipped on platforms without POSIX mode
+semantics; skipped probes are not counted as caught. The mutation script
+reports missing dependencies as a setup error before trying any mutations.
 
 Covered: strict all/partial unmatched-code errors; POA prefix/case/whitespace
 matching and integer/whole-float padding; bare NT leading-zero parsing and
@@ -298,6 +436,7 @@ column). The permanent mutation probes are in `tests/check_mutations.py`; the
 daily progress record stores run results.
 
 The Parquet test is automatically skipped when `pyarrow` is not installed.
+The offline uv configuration-guard test is skipped when `uv` is not on PATH.
 
 ## Geography/data caveats
 
