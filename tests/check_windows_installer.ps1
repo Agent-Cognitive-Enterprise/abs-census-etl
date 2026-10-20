@@ -4,7 +4,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$ReleaseDir,
     [Parameter(Mandatory = $true)][string]$Version,
-    [Parameter(Mandatory = $true)][string]$NextVersion
+    [Parameter(Mandatory = $true)][string]$NextVersion,
+    [string]$OriginalReleaseDir
 )
 $ErrorActionPreference = 'Stop'
 $smokeParameters = @{} + $PSBoundParameters
@@ -56,7 +57,10 @@ try {
     [void][IO.Directory]::CreateDirectory($base)
     Copy-Item -LiteralPath $smokeParameters.ReleaseDir -Destination $assets -Recurse
     $options = @{ Prefix = $root; ReleaseDir = $assets }
-    Install-AbsCensus @options -Version $first
+    if ($smokeParameters.OriginalReleaseDir) {
+        # First install consumes the actual released checksum file, unchanged.
+        Install-AbsCensus -Prefix $root -ReleaseDir $smokeParameters.OriginalReleaseDir -Version $first
+    } else { Install-AbsCensus @options -Version $first }
     $original = Read-Selection
     $repeat = Install-AbsCensus @options -Version $first 6>&1 | Out-String
     Check ($repeat -match 'Already installed') 'repeat skips current environment'

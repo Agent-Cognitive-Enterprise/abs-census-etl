@@ -29,6 +29,16 @@
 
 ### Added and corrected behavior
 
+- GitHub Actions validates release bundles and native installer behavior across
+  Linux, macOS and Windows. Manual release preparation defaults to tests only;
+  explicit publication verifies uploads and refuses existing releases.
+- Release builds pin and hash-check their build tool, include checksums for both
+  standalone installers, and keep generated build state outside the checkout.
+- Licensed under the MIT License. Source archives and wheels include `LICENSE`,
+  and release verification requires it to match the checkout.
+- README clarifies AS IS availability and users' responsibility to verify results.
+- Correct the TrustedInstaller SID so normal Windows drive ownership passes
+  installer location checks.
 - Windows PowerShell installer uses the same release assets and install/update
   lifecycle. It bootstraps private Python, installs verified wheels, retains
   saved choices, and atomically switches the active selection after validation.

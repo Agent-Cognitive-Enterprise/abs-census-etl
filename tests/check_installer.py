@@ -6,6 +6,7 @@ working .venv or installs into the real user's application directories.
 """
 from __future__ import annotations
 
+import argparse
 import csv
 import hashlib
 import json
@@ -31,6 +32,9 @@ def run(args, *, cwd, env, expected=0):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--release-dir', type=Path, help='Verified current release bundle')
+    args = parser.parse_args()
     if os.name != "posix" or getattr(os, "geteuid", lambda: 0)() == 0:
         print("Installer smoke requires a normal POSIX user.", file=sys.stderr)
         return 2
@@ -81,7 +85,17 @@ def main():
         source = scratch / "build-source"
         helpers["copy_build_source"](ROOT, source)
         assets = scratch / "assets"
-        for release in (version, newer):
+        assets.mkdir()
+        if args.release_dir:
+            release_tools = runpy.run_path(str(ROOT / 'scripts/release.py'))
+            release_tools['verify'](args.release_dir, 'v' + version)
+            for name in ('install.sh', 'install.ps1'):
+                if (args.release_dir / name).read_bytes() != (ROOT / name).read_bytes():
+                    raise RuntimeError('Release installer differs from checkout: ' + name)
+            for name in release_tools['asset_names'](version):
+                if name.endswith(('.tar.gz', '.whl')):
+                    shutil.copyfile(args.release_dir / name, assets / name)
+        for release in ((newer,) if args.release_dir else (version, newer)):
             for filename in ("pyproject.toml", "uv.lock"):
                 original = (ROOT / filename).read_text()
                 (source / filename).write_text(original.replace(
@@ -90,7 +104,7 @@ def main():
                  "--out-dir", str(assets)], cwd=source, env=uv_env)
         checksums = "".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n"
                             for p in sorted(assets.iterdir()))
-        (assets / "SHA256SUMS").write_text(checksums)
+        (assets / "SHA256SUMS").write_bytes(checksums.encode("ascii"))
         home = scratch / "home"
         home.mkdir()
         env = dict(env, HOME=str(home), PATH="/usr/bin:/bin")
@@ -99,7 +113,10 @@ def main():
         prefix = home / ".local/share/abs-census-etl"
         launcher = home / ".local/bin/abs-census-etl"
         command = ["sh", str(ROOT / "install.sh"), "--release-dir", str(assets)]
-        run([*command, "--csv", "--version", version], cwd=work, env=env)
+        first_command = (["sh", str(args.release_dir.resolve() / "install.sh"),
+                          "--release-dir", str(args.release_dir.resolve())]
+                         if args.release_dir else command)
+        run([*first_command, "--csv", "--version", version], cwd=work, env=env)
         help_text = run([str(launcher), "--help"], cwd=work, env=env)
         if ("usage: abs-census-etl " not in help_text or
                 "    abs-census-etl --geo POA" not in help_text or
@@ -177,7 +194,7 @@ def main():
         if "checksum mismatch" not in failure or (prefix / "active").read_text().strip() != current:
             raise RuntimeError(failure)
         run([str(launcher), "--help"], cwd=work, env=env)
-        (assets / "SHA256SUMS").write_text(checksums)
+        (assets / "SHA256SUMS").write_bytes(checksums.encode("ascii"))
         run([*command, "--parquet", "--version", newer], cwd=work, env=env)
         run([str(launcher), "--geo", "POA", "--state", "NT", "--zip", "nt.zip",
              "--codes", "0800", "--format", "parquet", "--out", "parquet"], cwd=work, env=env)

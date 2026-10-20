@@ -23,6 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--uv", help="Trusted uv executable for preparing test release artifacts")
+    parser.add_argument('--release-dir', type=Path, help='Verified current release bundle')
+    parser.add_argument('--powershell', help='Shell for full smoke; defaults to Windows PowerShell 5.1')
     args = parser.parse_args()
     if os.name != "nt":
         print("This smoke requires native Windows; use tests/check_installer.py on Unix.",
@@ -33,6 +35,7 @@ def main() -> int:
         print("Artifact preparation needs uv on PATH or --uv ABSOLUTE_PATH.", file=sys.stderr)
         return 2
     powershell = Path(os.environ["WINDIR"]) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+    powershell = args.powershell or str(powershell)
     helpers = runpy.run_path(str(ROOT / "tests/check_packaging.py"))
     metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
     version = metadata["project"]["version"]
@@ -46,7 +49,17 @@ def main() -> int:
         env = helpers["isolated_environment"](dict(os.environ))
         uv_env = helpers["uv_environment"](env, scratch / "config")
         assets = scratch / "assets"
-        for selected in (version, newer):
+        assets.mkdir()
+        if args.release_dir:
+            release_tools = runpy.run_path(str(ROOT / 'scripts/release.py'))
+            release_tools['verify'](args.release_dir, 'v' + version)
+            for name in ('install.sh', 'install.ps1'):
+                if (args.release_dir / name).read_bytes() != (ROOT / name).read_bytes():
+                    raise RuntimeError('Release installer differs from checkout: ' + name)
+            for name in release_tools['asset_names'](version):
+                if name.endswith(('.tar.gz', '.whl')):
+                    shutil.copyfile(args.release_dir / name, assets / name)
+        for selected in ((newer,) if args.release_dir else (version, newer)):
             for name in ("pyproject.toml", "uv.lock"):
                 text = (ROOT / name).read_text()
                 (source / name).write_text(text.replace(
@@ -55,11 +68,13 @@ def main() -> int:
                             "--out-dir", str(assets)], cwd=source, env=uv_env)
         sums = "".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n"
                        for p in sorted(assets.iterdir()))
-        (assets / "SHA256SUMS").write_text(sums)
+        (assets / "SHA256SUMS").write_bytes(sums.encode("ascii"))
         result = subprocess.run(
             [str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
              str(ROOT / "tests/check_windows_installer.ps1"), "-ReleaseDir", str(assets),
-             "-Version", version, "-NextVersion", newer], cwd=ROOT, env=env,
+             "-Version", version, "-NextVersion", newer,
+             *(["-OriginalReleaseDir", str(args.release_dir.resolve())]
+               if args.release_dir else [])], cwd=ROOT, env=env,
             timeout=600,
         )
         return result.returncode

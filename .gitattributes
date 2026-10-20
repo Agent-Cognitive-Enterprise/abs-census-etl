@@ -1,0 +1,6 @@
+# Release assets must have identical bytes on every checkout platform.
+* text=auto eol=lf
+*.gz binary
+*.whl binary
+*.zip binary
+*.png binary

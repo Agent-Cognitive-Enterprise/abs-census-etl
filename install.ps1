@@ -240,7 +240,7 @@ function Assert-ProtectedLocation([string]$Path, [switch]$Contents, [string]$Sto
     # account later runs. Missing components are created private later.
     $user = [Security.Principal.WindowsIdentity]::GetCurrent().User
     $trusted = @($user.Value, 'S-1-5-18', 'S-1-5-32-544', 'S-1-3-0', 'S-1-3-4',
-        'S-1-5-80-956008885-3418522649-1831038044-1975480150-2235227588')
+        'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
     for ($current = $Path; $current; $current = [IO.Path]::GetDirectoryName($current)) {
         if ($Stop -and [string]::Equals($current, $Stop, [StringComparison]::OrdinalIgnoreCase)) {
             break

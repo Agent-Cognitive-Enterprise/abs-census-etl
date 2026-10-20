@@ -7,6 +7,15 @@ CLI. It processes table parts such as `G04A` and `G04B` as one table, keyed on
 geography, with checks to prevent silent mismatches. Geography codes remain
 strings to retain leading zeros.
 
+## Use and responsibility
+
+This project is free software under the [MIT License](LICENSE).
+It is provided **as is**, without warranties or guarantees. You are
+responsible for how you use it, checking its results against the ABS source data,
+and keeping backups of your files. Please verify outputs before relying on them
+for important decisions. To the extent permitted by law, the maintainers accept
+no liability for errors, data loss or other consequences of using the software.
+
 ## Install or update on Windows
 
 The managed installer currently targets native x64 Windows 10 (1803+)/11 with
@@ -679,8 +688,7 @@ uv build --python 3.14
 The source archive includes the project definition, lockfile and tests. The
 wheel contains the module, CLI entry point and distribution metadata; it does
 not embed the dependency lock. Install the source with `uv sync --locked` for
-locked dependencies. Choosing a license remains an owner decision before
-public release.
+locked dependencies. Both archives include the MIT `LICENSE`.
 
 Both offline test commands use the project environment. The dedicated POSIX
 data-mode mutation is explicitly skipped on platforms without POSIX mode
@@ -725,3 +733,18 @@ The offline uv configuration-guard test is skipped when `uv` is not on PATH.
 ABS DataPacks: https://www.abs.gov.au/census/find-census-data/datapacks
 
 [pwsh-install]: https://learn.microsoft.com/powershell/scripting/install/installing-powershell
+
+## Release checks for maintainers
+
+GitHub Actions validates the application and installer on Linux, macOS and
+Windows. Release bundles contain the source archive, wheel, both installers and
+SHA256SUMS. Publishing requires an explicit manual release workflow after all
+checks pass; ordinary pushes and pull requests never publish.
+See [release preparation and publication](docs/release-assets.md#build-validation-and-manual-publication)
+for local build commands, dependency review, retained logs and the first-run
+limitations. CI configuration is not evidence that those hosted jobs have run.
+
+Every release check requires both archives to carry the checkout's MIT
+`LICENSE` unchanged. Release smokes consume the original checksum
+file before testing synthetic updates. CI runs on pull requests and main-branch
+pushes to avoid running the full native matrix twice for every feature push.

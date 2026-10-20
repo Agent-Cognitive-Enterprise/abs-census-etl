@@ -1,0 +1,66 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vVERSION tag on the default branch
+        required: true
+        type: string
+      publish:
+        description: Publish a NEW release after all checks (false builds/tests only)
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  prepare:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      commit: ${{ steps.resolve.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: resolve
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: python3 -I scripts/release.py resolve-tag --tag "$RELEASE_TAG"
+  checks:
+    needs: prepare
+    uses: ./.github/workflows/ci.yml
+    with:
+      commit: ${{ needs.prepare.outputs.commit }}
+      tag: ${{ inputs.tag }}
+    permissions:
+      contents: read
+  publish:
+    if: inputs.publish && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: [prepare, checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Only publication serializes; GitHub keeps one waiting job and cancels older ones.
+    concurrency:
+      group: release-publication
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      # Trusted workflow/default-branch tooling, NOT code from an input tag.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: dist/release
+      - name: Publish verified new release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          TESTED_COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: >-
+          python3 -I scripts/release.py publish
+          --tag "$RELEASE_TAG" --commit "$TESTED_COMMIT" --confirm

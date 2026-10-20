@@ -295,12 +295,12 @@ class InstallerTests(unittest.TestCase):
         for call in calls:
             for name in hostile:
                 self.assertNotIn(name, call["env"], (name, call))
-            self.assertEqual(call["python_root"], str(self.prefix / "python"))
+            self.assertEqual(call["python_root"], str((self.prefix / "python").resolve()))
             for name, suffix in (("XDG_CONFIG_HOME", "config/user"),
                                  ("XDG_CONFIG_DIRS", "config/system"),
                                  ("APPDATA", "config/user"), ("PROGRAMDATA", "config/system")):
                 config = Path(call["env"][name])
-                self.assertTrue(config.is_relative_to(self.prefix))
+                self.assertTrue(config.is_relative_to(self.prefix.resolve()))
                 self.assertTrue(str(config).endswith(suffix))
 
     def test_parquet_choice_creates_separate_environment(self):
@@ -597,7 +597,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(self.app(), 'FAKE_APP ' + self.version)
         self.assertEqual(len(list((self.prefix / 'versions').iterdir())), 2)
         self.install()
-        self.assertIn('bin_dir=' + str(self.bin), (self.prefix / 'settings').read_text())
+        self.assertIn('bin_dir=' + str(self.bin.resolve()), (self.prefix / 'settings').read_text())
 
     def test_repository_identity_is_saved_and_separates_cached_environments(self):
         self.install(None, '--repository', 'owner/fork')

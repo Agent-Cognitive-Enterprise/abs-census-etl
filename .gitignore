@@ -11,3 +11,6 @@ dist/
 
 # Local installer test logs, manifests and runner snapshots
 /docs/evidence/
+
+# GitHub Actions/local CI run output
+/test-results/

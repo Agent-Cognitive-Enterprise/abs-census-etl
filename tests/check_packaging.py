@@ -21,7 +21,7 @@ from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_FILES = {
-    "abs_census_etl.py", "pyproject.toml", "uv.lock", "MANIFEST.in",
+    "abs_census_etl.py", "pyproject.toml", "uv.lock", "MANIFEST.in", "LICENSE",
     "README.md", "CHANGELOG.md", "setup.cfg", "tests/check_packaging.py",
     "tests/check_mutations.py", "tests/test_abs_census_etl.py",
     "tests/test_packaging_checks.py",
@@ -167,7 +167,7 @@ def check_artifacts(artifacts: Path, version: str) -> tuple[Path, Path]:
     with ZipFile(wheel) as archive:
         info = f"abs_census_etl-{version}.dist-info"
         check_files(set(archive.namelist()), {"abs_census_etl.py"} | {
-            f"{info}/{name}" for name in ("METADATA", "WHEEL", "RECORD",
+            f"{info}/{name}" for name in ("METADATA", "WHEEL", "RECORD", "licenses/LICENSE",
                                           "entry_points.txt", "top_level.txt")}, "wheel")
     check_files(sdist_files(sdist), expected_sdist(version), "sdist")
     return wheel, sdist

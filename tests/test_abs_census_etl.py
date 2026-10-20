@@ -670,11 +670,11 @@ class ABSModuleTests(unittest.TestCase):
         self.assertEqual(old_entry["file_format"], "parquet")
         self.assertEqual(old_entry["shape"], "wide")
         self.assertEqual(old_entry["areas"], 1)
-        self.assertEqual(old_entry["source"], str(self.source))
-        self.assertEqual(manifest["tables"]["G02"]["source"], str(other_source))
+        self.assertEqual(old_entry["source"], str(self.source.resolve()))
+        self.assertEqual(manifest["tables"]["G02"]["source"], str(other_source.resolve()))
         self.assertEqual(manifest["tables"]["G02"]["file_format"], "csv")
         self.assertEqual(manifest["tables"]["G02"]["shape"], "long")
-        self.assertEqual(manifest["source"], str(other_source))
+        self.assertEqual(manifest["source"], str(other_source.resolve()))
         self.assertEqual(manifest["manifest_scope"], "latest_export_per_table")
         before_failure = {p.name: p.read_bytes() for p in out.iterdir()}
         with self.assertRaises(ValueError):

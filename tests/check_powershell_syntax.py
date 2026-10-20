@@ -30,7 +30,8 @@ def main() -> int:
     script = r"""
 $ErrorActionPreference = 'Stop'
 $files = @('install.ps1', 'tests/test_windows_installer.ps1',
-           'tests/check_windows_installer.ps1', 'tests/check_windows_elevation.ps1')
+           'tests/check_windows_installer.ps1', 'tests/check_windows_elevation.ps1',
+           'scripts/with_standard_user.ps1', 'scripts/windows_checks.ps1')
 foreach ($path in $files) {
     $tokens = $null; $errors = $null
     [void][Management.Automation.Language.Parser]::ParseFile(

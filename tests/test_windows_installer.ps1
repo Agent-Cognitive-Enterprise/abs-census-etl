@@ -71,6 +71,26 @@ try {
     try { Set-PrivateDirectory $nested; New-PrivateDirectory $nested }
     finally { Remove-Item function:Set-Acl }
     Check $true 'created DACL matches private comparison; existing directory kept'
+    # Resolve the real service SID rather than copying the installer's constant.
+    $serviceSid = (New-Object Security.Principal.NTAccount('NT SERVICE','TrustedInstaller')).
+        Translate([Security.Principal.SecurityIdentifier])
+    $ownerFixture = Join-Path $base 'trusted-service-owner'
+    New-PrivateDirectory $ownerFixture
+    $ownerAcl = New-Object Security.AccessControl.DirectorySecurity
+    $ownerAcl.SetOwner($serviceSid)
+    $realGetAcl = Get-Command Get-Acl
+    function Get-Acl([string]$LiteralPath) {
+        if ($LiteralPath -eq $ownerFixture) { return $ownerAcl }
+        & $realGetAcl -LiteralPath $LiteralPath
+    }
+    try {
+        Assert-ProtectedLocation $ownerFixture -Stop $base
+        Check $true 'Windows-resolved TrustedInstaller owner accepted'
+        $ownerAcl.SetOwner((New-Object Security.Principal.SecurityIdentifier('S-1-5-21-1-2-3-4567')))
+        Reject { Assert-ProtectedLocation $ownerFixture -Stop $base } 'Other accounts'
+        Check $true 'foreign owner refused through the same Get-Acl mock'
+    } finally { Remove-Item function:Get-Acl }
+
     # One Set-Acl per directory: rewriting a protected DACL can need extra privilege.
     function New-SharedTestDirectory([string]$Name, [string]$Rights, [switch]$InheritOnly) {
         $path = Join-Path $base $Name

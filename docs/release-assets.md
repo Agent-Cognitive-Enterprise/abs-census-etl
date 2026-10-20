@@ -34,7 +34,9 @@ layout.
 | `install.ps1` | Standalone Windows PowerShell installer |
 
 SHA256SUMS uses the conventional `64-lowercase-hex-digits`, two spaces, `basename`
-format, one entry per asset. The installer requires exactly one matching entry for each
+format, one entry per asset. Lines use LF only and end with a newline; both
+installers also use LF. .gitattributes preserves these bytes across checkouts.
+The installer requires exactly one matching entry for each
 source archive and wheel, compares its digest before extraction, and refuses
 missing/duplicate/invalid entries. Checksums provide integrity against the selected
 release, not independent authentication of a publisher. The bootstrap shell command
@@ -195,3 +197,124 @@ directory above the root or bin are refused if such an account owns one or may
 delete it (except a drive root), delete its children, change its DACL or take
 ownership. The root itself is exempt because each run makes it private. Only
 allow ACEs are judged; deny ACEs are conservatively not credited.
+
+## Build, validation and manual publication
+
+`CI` runs on main-branch pushes and pull requests with `contents: read` permissions and no
+publishing job. The reusable checks build one five-file bundle and pass it to
+native jobs on Ubuntu x64/ARM64, macOS ARM64/Intel and Windows x64. Installer
+smokes consume that bundle for the current version and build a synthetic next
+version to exercise updates/failures. This is workflow configuration, not a
+claim that GitHub-hosted jobs have already run.
+
+From a source checkout with development Python and uv, prepare a local bundle:
+
+```bash
+.venv/bin/python scripts/release.py build --tag v0.1.0.dev0
+.venv/bin/python scripts/release.py verify --tag v0.1.0.dev0
+```
+
+Use the actual `project.version` for a release. Output defaults to `dist/release`
+and must be absent or empty; `--assets PATH` selects a fresh output folder.
+Builds use a temporary copy of the reviewed source allow-list and normalize file
+permissions. They leave the checkout's build state and `.venv` alone.
+`release-build-constraints.txt` pins setuptools 82.0.1 and its PyPI hashes;
+release builds require these hashes. No dependency lock is regenerated.
+SHA256SUMS lists the other four assets (it cannot checksum itself).
+
+Before releasing, update the version in pyproject.toml and uv.lock together,
+review the dependency/build-tool changes, run the checks, and commit/tag that
+reviewed revision. A release tag must already exist, be canonical `vVERSION`,
+match source/wheel/lock metadata, and point to a commit on the default branch.
+Do not move an existing release tag or replace its assets. Choose a new version.
+The project is licensed under the MIT License (`LICENSE`). The source archive
+ships it at its root and the wheel ships it as `.dist-info/licenses/LICENSE`,
+with `License-Expression: MIT` metadata.
+
+In GitHub Actions, manually run **Release** from the default branch with that
+existing tag. Leave **publish** false to build/test only. Inspect all platform
+results and downloaded `release-assets`/`native-logs-*` artifacts. An explicit
+manual run with **publish** true repeats the checks and permits publication
+only after every job passes. No tag push, PR or ordinary CI run publishes.
+
+The final job alone has `contents: write`; it executes default-branch tooling,
+not scripts from the supplied tag. It rechecks the tested tag commit, refuses
+an existing release or draft, creates a new draft, uploads all five assets,
+checks exact names and polls asset listings for uploaded state and SHA256
+digests (up to five attempts, two seconds apart), rechecks the tag, and
+then makes the release public. Development/pre-release versions are marked as
+prereleases. Latest-release one-liners normally require a stable release.
+Publication explicitly sets make_latest: only a stable version strictly newer
+than all published stable versions becomes latest. Older patch and prerelease
+releases do not change latest. Existing stable tags must follow the canonical
+version contract, or publication refuses them for manual inspection.
+Failures before the final publish request leave the draft for inspection. If
+that final request times out, publication may already have succeeded: inspect
+the release before retrying. The publisher never deletes or overwrites assets;
+inspect/remove an incomplete draft manually, or use a new version. Only the
+publish job is serialized, across all tags, with a fresh version comparison
+immediately before publication; test-only runs never wait for it. GitHub keeps
+at most one waiting job per group: a newer publish job cancels an older waiting
+one, so re-dispatch any publish job shown as cancelled. Other API/UI publishers
+are not serialized.
+Remote tag protection is a separate repository setting; these scripts cannot
+prevent another authorized actor from moving a tag after publication.
+
+All action references use full commit SHAs verified against their upstream
+repositories. No `pull_request_target`, `workflow_run`, persistent checkout
+credentials or publishing token is used in test jobs. Hosted Windows runners
+may be elevated: `scripts/with_standard_user.ps1` runs checks under a restricted
+SAFER NORMALUSER token, with a private desktop and kill-on-close process job.
+It creates no accounts or persistent policies. This does not replace validation
+from a separately provisioned standard-user profile. TEMP stays inside the
+profile; optional case-sensitive-directory probes need an explicitly prepared
+`ABS_INSTALLER_CASE_PARENT` as described in the README.
+
+Dependency age policy: the owner chose to retain the current lock and document
+age review, with no enforced waiting period for this slice. Before release,
+review PyPI upload dates and dependency/build-tool diffs, including recent
+uploads such as the current certifi pin. If an age gate is adopted later, use a
+fixed UTC cutoff, regenerate the lock deliberately and retest all targets.
+Neither a waiting period, hashes nor pinning establishes package safety.
+
+Reference: [GitHub runner labels][runners], [workflow least privilege and SHA
+pinning][actions-security], [release asset API][asset-api], and [uv build/hash
+options][uv-build]. Native logs are generated artifacts, retained by Actions for
+14 days; download them for longer review. Local logs belong in ignored
+`docs/evidence/`, never in the application archives.
+
+[runners]: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+[actions-security]: https://docs.github.com/en/actions/reference/security/secure-use
+[asset-api]: https://docs.github.com/en/rest/releases/assets
+[uv-build]: https://docs.astral.sh/uv/reference/cli/#uv-build
+
+### Publication preconditions and validation boundaries
+
+The write-privileged job uses Ubuntu's system Python 3.12 in isolated mode;
+it neither runs setup-uv nor bootstraps Python while holding its release token.
+Every bundle verification (release build, native smokes and publication)
+requires the source archive LICENSE and the wheel's licenses/LICENSE to equal
+the trusted checkout's nonempty LICENSE byte for byte, so a missing or changed
+license fails in the CI build job rather than after the native matrix. The
+packaging allow-list and exact wheel contents include the license file.
+
+Trusted default-branch tooling validates artifacts using its current exact
+archive allow-list. If that list has changed since a tag was made, the tag may
+pass its own CI and still fail the final trusted verification. Align/review the
+contract before dispatching an older tag; the publisher never loads checker
+code from an artifact. No slow-check result bypasses final verification.
+
+Smokes first install the current version with the original bundle SHA256SUMS,
+unchanged; synthetic update/failure fixtures use separate generated checksums.
+GitHub upload responses need not provide a digest; the later asset listing must.
+A missing digest after bounded polling retains the draft and reports a failure.
+API errors include GitHub's response body; malformed bundles produce CLI errors.
+
+The Windows restricted-token wrapper allows 50 minutes, inside a 60-minute native
+job timeout. Each component command retains its own timeout. These budgets are
+not measured hosted performance; inspect the first hosted run before tuning.
+Current GitHub runner documentation lists Ubuntu ARM64 for public and private
+standard runners; Actions permissions and billable minutes still need checking
+in the actual repository. Native evidence from this workstation is not a hosted
+checkout test. Local evidence paths in progress notes are ignored artifacts,
+not links promised to readers of the Git repository.
