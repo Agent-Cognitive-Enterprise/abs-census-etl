@@ -23,6 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_FILES = {
     "abs_census_etl.py", "pyproject.toml", "uv.lock", "MANIFEST.in", "LICENSE",
     "README.md", "CHANGELOG.md", "setup.cfg", "tests/check_packaging.py",
+    "docs/installation.md", "docs/data-guide.md", "docs/development.md",
+    "docs/release-assets.md",
     "tests/check_mutations.py", "tests/test_abs_census_etl.py",
     "tests/test_packaging_checks.py",
 }
@@ -37,6 +39,7 @@ DECOY_FILES = (
     "AGENTS.md",
     ".gitignore",
     "docs/progress/do_not_ship.md",
+    "docs/release-readiness.md",
     "data.zip",
     "abs_out/raw/do_not_ship.zip",
     "abs_cache/do_not_ship.zip",

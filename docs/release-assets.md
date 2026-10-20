@@ -43,7 +43,8 @@ release, not independent authentication of a publisher. The bootstrap shell comm
 trusts the downloaded installer over GitHub HTTPS.
 
 The source archive has exactly one root, `abs_census_etl-<version>/`, and contains the
-module, pyproject.toml, uv.lock, setup.cfg, MANIFEST.in, README, CHANGELOG and tests.
+module, pyproject.toml, uv.lock, setup.cfg, MANIFEST.in, README, CHANGELOG,
+LICENSE, the linked user/development documentation and tests.
 Its members must be regular files or directories with portable ASCII path components;
 absolute paths, traversal and links are refused. Python and source metadata are checked
 before dependency installation; installed wheel metadata must match the selected version
@@ -231,8 +232,10 @@ The project is licensed under the MIT License (`LICENSE`). The source archive
 ships it at its root and the wheel ships it as `.dist-info/licenses/LICENSE`,
 with `License-Expression: MIT` metadata.
 
-In GitHub Actions, manually run **Release** from the default branch with that
-existing tag. Leave **publish** false to build/test only. Inspect all platform
+In GitHub Actions, select the **default branch** in "Use workflow from", then
+enter that existing version tag in the **tag input** and manually run **Release**.
+Do not choose the tag as the workflow ref; the default-branch guard would skip
+validation. Leave **publish** false to build/test only. Inspect all platform
 results and downloaded `release-assets`/`native-logs-*` artifacts. An explicit
 manual run with **publish** true repeats the checks and permits publication
 only after every job passes. No tag push, PR or ordinary CI run publishes.
@@ -318,3 +321,12 @@ standard runners; Actions permissions and billable minutes still need checking
 in the actual repository. Native evidence from this workstation is not a hosted
 checkout test. Local evidence paths in progress notes are ignored artifacts,
 not links promised to readers of the Git repository.
+
+Before each release, refresh both dated status records for that revision: the
+checkout-only handoff at `docs/release-readiness.md` (version, evidence and approval
+policy), and the **Recorded native validation** section of `docs/development.md`
+(date, native/hosted coverage and limits). The handoff is excluded from application
+archives; the development guide ships in them, so a stale section would reach source
+downloads. This contract is the release procedure for source downloads. User
+documentation is shipped in the sdist so README links work offline;
+installer/CI/release scripts remain checkout tooling.

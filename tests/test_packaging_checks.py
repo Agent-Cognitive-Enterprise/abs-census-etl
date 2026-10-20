@@ -22,6 +22,21 @@ UV = shutil.which("uv")
 
 
 class PackagingCheckTests(unittest.TestCase):
+    def test_actual_source_has_all_required_build_inputs(self):
+        # Missing newly added docs must fail offline, including in a clean clone.
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as td:
+            copy_build_source(root, Path(td) / "source")
+
+    def test_missing_document_is_refused_offline(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "source"
+            copy_build_source(Path(__file__).resolve().parents[1], source)
+            document = next(name for name in sorted(SOURCE_FILES) if name.startswith("docs/"))
+            (source / document).unlink()
+            with self.assertRaisesRegex(RuntimeError, "Missing build input"):
+                copy_build_source(source, Path(td) / "destination")
+
     def make_source(self, root):
         for name in SOURCE_FILES:
             path = root / name

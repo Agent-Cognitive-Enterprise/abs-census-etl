@@ -29,6 +29,9 @@
 
 ### Added and corrected behavior
 
+- Beginner install, first-export and update instructions now lead the README;
+  detailed installation, data and development guides ship with the source
+  archive. The dated release handoff remains checkout-only.
 - GitHub Actions validates release bundles and native installer behavior across
   Linux, macOS and Windows. Manual release preparation defaults to tests only;
   explicit publication verifies uploads and refuses existing releases.
