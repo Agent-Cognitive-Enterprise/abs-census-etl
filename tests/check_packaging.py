@@ -26,7 +26,8 @@ SOURCE_FILES = {
     "docs/installation.md", "docs/data-guide.md", "docs/development.md",
     "docs/release-assets.md",
     "tests/check_mutations.py", "tests/test_abs_census_etl.py",
-    "tests/test_packaging_checks.py",
+    "tests/test_packaging_checks.py", "tests/test_data_features.py",
+    "tests/check_abs_data.py",
 }
 # Placeholders for files a clone or working checkout has but releases must not
 # ship. Writing them copies no checkout data, and the exact sdist list then

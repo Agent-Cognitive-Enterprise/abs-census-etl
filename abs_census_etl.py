@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Read and transform ABS 2021 Census GCP DataPacks from Python or the CLI.
 
-The General Community Profile (GCP) is available for Postal Areas (POA,
-postcode approximations) and Statistical Areas Level 1 (SA1). Tables with
+Supported 2021 General Community Profile (GCP) geographies are POA, SA1–SA4,
+LGA, SED, CED, STE and SAL. Postal Areas approximate postcodes. Tables with
 lettered parts, such as G04A/G04B, are automatically joined on the geographic
 code. Geographic identifiers are kept as strings to preserve leading zeros.
 
@@ -41,20 +41,28 @@ percentages, rates and medians should not simply be summed.
 from __future__ import annotations
 
 import argparse
+import errno
+import hashlib
+import io
 import json
 import math
 import os
+import posixpath
 import re
 import shutil
 import stat
 import sys
 import tempfile
 import warnings
+import zlib
 from collections.abc import Iterable, Sequence
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from importlib.util import find_spec
 from numbers import Integral, Real
 from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import BinaryIO
+from xml.etree import ElementTree as ET
 from zipfile import BadZipFile, ZipFile
 
 import pandas as pd
@@ -62,7 +70,15 @@ import requests
 
 BASE_URL = "https://www.abs.gov.au/census/find-census-data/datapacks/download"
 MISSING = {"", "..", "...", "-", "np", "n.p.", "na", "n/a", "null", "none"}
-VALID_GEOS = {"POA", "SA1"}
+GEOGRAPHIES = {
+    "POA": "Postal Areas", "SA1": "Statistical Area Level 1",
+    "SA2": "Statistical Area Level 2", "SA3": "Statistical Area Level 3",
+    "SA4": "Statistical Area Level 4", "LGA": "Local Government Areas",
+    "SED": "State Electoral Divisions", "CED": "Commonwealth Electoral Divisions",
+    "STE": "States and Territories", "SAL": "Suburbs and Localities",
+}
+VALID_GEOS = frozenset(GEOGRAPHIES)
+MEMBER_RE = re.compile(r"2021Census_(G\d{2}[A-Z]?)_([A-Z]+)_([A-Z0-9]+)\.csv", re.I)
 VALID_STATES = {"AUS", "NSW", "VIC", "QLD", "SA", "WA", "TAS", "NT", "ACT", "OT"}
 PARQUET_ENGINE_HELP = (
     "Parquet export needs pyarrow or fastparquet. Install the project's parquet "
@@ -77,8 +93,8 @@ def args_parser() -> argparse.ArgumentParser:
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--geo", choices=sorted(VALID_GEOS), required=True)
     parser.add_argument("--state", default="NSW", choices=sorted(VALID_STATES))
-    parser.add_argument("--tables", nargs="+", default=["G01"],
-                        help="Table IDs, e.g. G01 G04 (G04 joins G04A and G04B)")
+    parser.add_argument("--tables", nargs="+",
+                        help="Table IDs, e.g. G01 G04; defaults to G01, or all for --describe")
     parser.add_argument("--zip", dest="source_zip", type=Path,
                         help="Use a previously downloaded DataPack (no network)")
     parser.add_argument("--out", type=Path, default=Path("abs_out"))
@@ -87,8 +103,14 @@ def args_parser() -> argparse.ArgumentParser:
                         help="Output [geography_code, variable, value] rather than wide columns")
     parser.add_argument("--keep", nargs="+", help="Only retain specified measure columns")
     parser.add_argument("--codes", nargs="+", help="Filter geographic codes (as strings)")
-    parser.add_argument("--list-columns", action="store_true",
+    discovery = parser.add_mutually_exclusive_group()
+    discovery.add_argument("--list-columns", action="store_true",
                         help="List columns instead of exporting tables")
+    discovery.add_argument("--list-tables", action="store_true",
+                           help="List available tables, names and populations")
+    discovery.add_argument("--describe", action="store_true",
+                           help="Describe variables in --tables using ABS metadata")
+    parser.add_argument("--search", help="Case-insensitive literal search with --describe/--list-tables")
     return parser
 
 
@@ -119,9 +141,10 @@ def datapack_url(geo: str, state: str) -> str:
 
 
 def download_if_needed(url: str, dest: Path) -> None:
-    """Atomically cache a downloadable ZIP; no network call if already cached."""
+    """Check cached ZIP directories; fully validate new downloads before caching."""
     dest = Path(dest)
     if dest.is_file():
+        _validate_zip(dest)
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=dest.parent, suffix=".part", delete=False) as f:
@@ -134,13 +157,46 @@ def download_if_needed(url: str, dest: Path) -> None:
                 for chunk in response.iter_content(chunk_size=1024 * 1024):
                     if chunk:
                         out.write(chunk)
-        with ZipFile(tmp) as zipfile:
-            damaged_member = zipfile.testzip()
-            if damaged_member is not None:
-                raise BadZipFile(f"Downloaded ZIP failed integrity check: {damaged_member}")
+        _validate_zip(tmp, full=True)
         tmp.replace(dest)
     finally:
         tmp.unlink(missing_ok=True)
+
+
+def _zip_error(source: Path | BinaryIO | ZipFile, error: Exception) -> BadZipFile:
+    if isinstance(source, ZipFile):
+        name = source.filename
+    elif isinstance(source, (str, os.PathLike)):
+        name = source
+    else:
+        name = getattr(source, "name", None)
+    return BadZipFile(f"Invalid ZIP {name or '<in-memory archive>'}: {error}. "
+                      "Move it aside and download again, or supply a valid --zip / source_zip.")
+
+
+@contextmanager
+def _zip_read_errors(source: Path | BinaryIO | ZipFile):
+    """Translate archive corruption only; retain numeric/schema diagnostics."""
+    try:
+        yield
+    except (BadZipFile, zlib.error, EOFError) as exc:
+        raise _zip_error(source, exc) from exc
+
+
+def _validate_zip(path: Path, *, full: bool = False) -> None:
+    try:
+        with ZipFile(path) as archive:
+            # Opening reads only local headers, without decompressing payloads, but
+            # rejects encrypted members and compression methods this Python lacks.
+            for info in archive.infolist():
+                with archive.open(info):
+                    pass
+            if full:
+                damaged = archive.testzip()
+                if damaged:
+                    raise BadZipFile(f"CRC failure in {damaged}")
+    except (BadZipFile, EOFError, zlib.error, RuntimeError, NotImplementedError) as exc:
+        raise _zip_error(path, exc) from exc
 
 
 def _resolve_source(*, geo: str, state: str,
@@ -150,6 +206,7 @@ def _resolve_source(*, geo: str, state: str,
         source = Path(source_zip)
         if not source.is_file():
             raise FileNotFoundError(source)
+        _validate_zip(source)
         return source
     url = datapack_url(geo, state)
     cached = Path(cache_dir) / Path(url).name
@@ -166,8 +223,7 @@ def find_members(z: ZipFile, table: str, geo: str,
         geo, state = _validate_geography(geo, state)
     members: list[tuple[str, str, str]] = []
     for name in z.namelist():
-        match = re.fullmatch(r"2021Census_(G\d{2}[A-Z]?)_([A-Z]+)_(POA|SA1)\.csv",
-                             Path(name).name, re.I)
+        match = MEMBER_RE.fullmatch(Path(name).name)
         if not match or match.group(3).upper() != geo:
             continue
         member_state = match.group(2).upper()
@@ -220,9 +276,11 @@ def load_csv(z: ZipFile, member: str, code: str) -> pd.DataFrame:
     header = [column.strip() for column in raw_header]
     if code not in header:
         raise ValueError(f"{member} has no {code}; header begins {header[:6]}")
-    raw_code_column = raw_header[header.index(code)]
+    if len(set(header)) != len(header):
+        raise ValueError(f"Duplicate column names after trimming in {member}")
     with z.open(member) as source:
-        df = pd.read_csv(source, dtype={raw_code_column: "string"}, low_memory=False)
+        df = pd.read_csv(source, dtype="string", keep_default_na=False,
+                         na_filter=False, low_memory=False)
     df.columns = df.columns.str.strip()
     df[code] = df[code].str.strip()
     if df[code].isna().any() or df[code].eq("").any() or df[code].duplicated().any():
@@ -231,7 +289,13 @@ def load_csv(z: ZipFile, member: str, code: str) -> pd.DataFrame:
         if col != code:
             raw = df[col].astype("string").str.strip()
             raw = raw.mask(raw.str.lower().isin(MISSING), pd.NA)
-            df[col] = pd.to_numeric(raw, errors="coerce")
+            numeric = pd.to_numeric(raw, errors="coerce")
+            invalid = raw.notna() & (numeric.isna() | numeric.isin([math.inf, -math.inf]))
+            if invalid.any():
+                index = invalid[invalid].index[0]
+                raise ValueError(f"Invalid numeric value in {member}, column {col!r}, "
+                                 f"{code}={df.at[index, code]!r}: {raw.at[index]!r}")
+            df[col] = numeric
     return df
 
 
@@ -270,6 +334,12 @@ def _normalize_poa_code(value: str) -> str:
     return value.zfill(4) if re.fullmatch(r"[0-9]{1,4}", value) else value
 
 
+def _normalize_code(geo: str, value: str) -> str:
+    if geo == "POA":
+        return _normalize_poa_code(value)
+    return value.strip().upper().removeprefix(geo)
+
+
 def _validate_codes(geo: str, codes: Sequence[str | int | float] | None) -> list[str] | None:
     """Validate/format inputs without opening an archive or downloading data."""
     if codes is None:
@@ -293,11 +363,11 @@ def _validate_codes(geo: str, codes: Sequence[str | int | float] | None) -> list
                     or value != int(value)):
                 raise ValueError(f"Invalid POA input: {value!r}; use a finite whole postcode")
             text = str(int(value))
-        elif geo == "SA1" and isinstance(value, Integral):
+        elif geo != "POA" and isinstance(value, Integral):
             text = str(value)
         else:
             raise ValueError(f"Invalid {geo} input: {value!r}; use a geographic code")
-        normalized = _normalize_poa_code(text) if geo == "POA" else text.strip()
+        normalized = _normalize_code(geo, text)
         pattern = r"[0-9]{4}" if geo == "POA" else r"[0-9]+"
         if not re.fullmatch(pattern, normalized):
             raise ValueError(f"Invalid {geo} input: {value!r}; use a geographic code")
@@ -328,7 +398,7 @@ def _transform_table(df: pd.DataFrame, *, geo: str,
     code = f"{geo}_CODE_2021"
     if codes is not None:
         requested = codes
-        normalize = _normalize_poa_code if geo == "POA" else str.strip
+        normalize = lambda value: _normalize_code(geo, value)
         wanted = {normalize(value) for value in requested}
         available = df[code].map(normalize)
         available_codes = set(available)
@@ -346,13 +416,13 @@ def _transform_table(df: pd.DataFrame, *, geo: str,
     return df
 
 
-def _read_tables_from_zip(*, source: Path, geo: str, state: str,
+def _read_tables_from_zip(*, source: Path | BinaryIO, geo: str, state: str,
                           tables: Sequence[str],
                           codes: Sequence[str] | None,
                           keep: Sequence[str] | None,
                           long: bool) -> dict[str, pd.DataFrame]:
     result: dict[str, pd.DataFrame] = {}
-    with ZipFile(source) as z:
+    with _zip_read_errors(source), ZipFile(source) as z:
         for table in tables:
             df = combine_table(z, table, geo, state)
             result[table] = _transform_table(df, geo=geo, codes=codes,
@@ -369,7 +439,7 @@ def load_census_tables(*, geo: str = "POA", state: str = "NSW",
                        long: bool = False) -> dict[str, pd.DataFrame]:
     """Return {table_id: DataFrame}, downloading/caching once if needed.
 
-    ``geo`` is 'POA' or 'SA1'. Use string geographic codes to preserve leading
+    ``geo`` is a supported 2021 geography in GEOGRAPHIES. Use strings to preserve
     zeros. POA filters accept both "2000" and "POA2000"; returned codes retain
     the source format. Integer and finite whole-number float POA inputs are
     padded to four digits. Any unmatched code raises ValueError, including
@@ -558,6 +628,255 @@ def _cleanup_export(work: Path) -> str | None:
     return None
 
 
+# Read only the two known ABS metadata sheets. Excel formulas are never evaluated.
+_XLSX_NS = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+
+def _xlsx_sheets(content: bytes) -> dict[str, list[list[str]]]:
+    """Read text cells, shared/rich strings and sparse rows from an XLSX workbook."""
+    try:
+        with ZipFile(io.BytesIO(content)) as book:
+            shared = []
+            if "xl/sharedStrings.xml" in book.namelist():
+                shared = ["".join(t.text or "" for t in item.findall(".//s:t", _XLSX_NS))
+                          for item in ET.fromstring(book.read("xl/sharedStrings.xml"))]
+            relations = {rel.get("Id"): rel for rel in ET.fromstring(
+                book.read("xl/_rels/workbook.xml.rels"))}
+            workbook = ET.fromstring(book.read("xl/workbook.xml"))
+            result = {}
+            wanted = {"Table Number, Name, Population", "Cell Descriptors Information"}
+            for sheet in workbook.findall("s:sheets/s:sheet", _XLSX_NS):
+                name = sheet.get("name")
+                if name not in wanted:
+                    continue
+                rel = relations[sheet.get(f"{{{_REL_NS}}}id")]
+                target = rel.get("Target", "")
+                path = posixpath.normpath(target.lstrip("/") if target.startswith("/")
+                                          else posixpath.join("xl", target))
+                if (rel.get("TargetMode") == "External" or not path.startswith("xl/")
+                        or not rel.get("Type", "").endswith("/worksheet")):
+                    raise ValueError("Unsupported metadata worksheet relationship")
+                rows = []
+                for row in ET.fromstring(book.read(path)).findall(
+                        "s:sheetData/s:row", _XLSX_NS):
+                    cells = {}
+                    for cell in row.findall("s:c", _XLSX_NS):
+                        address = re.fullmatch(r"([A-Z]+)[0-9]+", cell.get("r", ""))
+                        if address is None:
+                            raise ValueError("Missing metadata cell address")
+                        column = 0
+                        for letter in address.group(1):
+                            column = column * 26 + ord(letter) - ord("A") + 1
+                        if column > 16384:
+                            raise ValueError("Invalid metadata column address")
+                        if cell.find("s:f", _XLSX_NS) is not None:
+                            raise ValueError("Formula cells are unsupported in ABS metadata")
+                        value = cell.find("s:v", _XLSX_NS)
+                        text = value.text or "" if value is not None else ""
+                        if cell.get("t") == "s":
+                            index = int(text)
+                            if not 0 <= index < len(shared):
+                                raise ValueError("Invalid metadata shared-string index")
+                            text = shared[index]
+                        elif cell.get("t") == "inlineStr":
+                            text = "".join(t.text or "" for t in cell.findall(".//s:t", _XLSX_NS))
+                        cells[column - 1] = text.strip()
+                    rows.append([cells.get(i, "") for i in range(max(cells, default=-1) + 1)])
+                if name in result:
+                    raise ValueError(f"Duplicate metadata sheet: {name}")
+                result[name] = rows
+            if set(result) != wanted:
+                raise ValueError("Missing required ABS metadata sheets")
+            return result
+    except (KeyError, IndexError, TypeError, ValueError, ET.ParseError, BadZipFile) as exc:
+        raise ValueError(f"Invalid ABS metadata workbook: {exc}") from exc
+
+
+def _metadata_records(rows: list[list[str]], headers: Sequence[str]) -> list[dict[str, str]]:
+    normalize = lambda text: re.sub(r"\s+", "", text).casefold()
+    required = [normalize(h) for h in headers]
+    for index, row in enumerate(rows):
+        names = [normalize(c) for c in row]
+        if all(h in names for h in required):
+            positions = [names.index(h) for h in required]
+            return [{h: values[p] if p < len(values) else ""
+                     for h, p in zip(headers, positions)} for values in rows[index + 1:]
+                    if any(values)]
+    raise ValueError(f"Unrecognized ABS metadata headers: expected {list(headers)}")
+
+
+def _read_metadata(archive: ZipFile) -> tuple[pd.DataFrame, pd.DataFrame]:
+    members = [n for n in archive.namelist() if re.fullmatch(
+        r"Metadata_2021_GCP_DataPack(?:_[A-Za-z0-9]+)*\.xlsx", Path(n).name, re.I)]
+    if len(members) != 1:
+        raise ValueError("Expected exactly one Metadata_2021_GCP_DataPack workbook; "
+                         f"found {len(members)}. Supply the complete official DataPack.")
+    with _zip_read_errors(archive):
+        sheets = _xlsx_sheets(archive.read(members[0]))
+    tables = _metadata_records(sheets["Table Number, Name, Population"],
+                               ["Table Number", "Table Name", "Table population"])
+    variables = _metadata_records(sheets["Cell Descriptors Information"],
+        ["Sequential", "Short", "Long", "DataPack file", "Profile table",
+         "Column heading description in profile"])
+    table_rows = [{"table": r["Table Number"], "name": r["Table Name"],
+                   "population": r["Table population"]} for r in tables
+                  if re.fullmatch(r"G\d{2}", r["Table Number"])]
+    variable_rows = [{"table": r["Profile table"][:3].upper(),
+                      "profile_table": r["Profile table"],
+                      "datapack_table": r["DataPack file"].upper(),
+                      "variable": r["Short"], "long_name": r["Long"],
+                      "description": r["Column heading description in profile"],
+                      "sequential": r["Sequential"]} for r in variables]
+    t = pd.DataFrame(table_rows, columns=["table", "name", "population"])
+    v = pd.DataFrame(variable_rows, columns=["table", "profile_table", "datapack_table", "variable",
+                                            "long_name", "description", "sequential"])
+    if (t.empty or v.empty or t["table"].duplicated().any()
+            or v.duplicated(["datapack_table", "variable"]).any()
+            or not set(v["table"]) <= set(t["table"])
+            or not v["profile_table"].str.fullmatch(r"G\d{2}[A-Za-z]?", case=False).all()
+            or not v["datapack_table"].str.fullmatch(r"G\d{2}[A-Z]?").all()
+            or not v["datapack_table"].str[:3].eq(v["table"]).all()
+            or v[["variable", "long_name"]].eq("").any().any()):
+        raise ValueError("Invalid or duplicate ABS table/variable metadata")
+    return t, v
+
+
+def _validate_search(search: str | None) -> None:
+    if search is not None:
+        if not isinstance(search, str) or not search.strip():
+            raise ValueError("search must be a nonblank string")
+
+
+def _search_metadata(frame: pd.DataFrame, search: str | None) -> pd.DataFrame:
+    _validate_search(search)
+    if search is not None:
+        mask = frame.apply(lambda col: col.astype("string").str.contains(
+            search.strip(), case=False, regex=False)).any(axis=1)
+        frame = frame.loc[mask]
+    return frame.reset_index(drop=True)
+
+
+def _available_table_ids(archive: ZipFile, geo: str, state: str) -> list[str]:
+    ids = set()
+    for member in archive.namelist():
+        match = MEMBER_RE.fullmatch(Path(member).name)
+        if match and match.group(3).upper() == geo:
+            member_state = match.group(2).upper()
+            if ("AUS" if member_state == "AUST" else member_state) == state:
+                ids.add(match.group(1)[:3].upper())
+    if not ids:
+        raise ValueError(f"Archive has no 2021 {geo} tables for state {state}")
+    return sorted(ids)
+
+
+def list_census_tables(*, geo: str = "POA", state: str = "NSW",
+                       source_zip: str | Path | None = None,
+                       cache_dir: str | Path = "abs_cache",
+                       search: str | None = None) -> pd.DataFrame:
+    """List available logical tables with official names, populations and file parts."""
+    geo, state = _validate_geography(geo, state)
+    _validate_search(search)
+    source = _resolve_source(geo=geo, state=state, source_zip=source_zip, cache_dir=cache_dir)
+    with ZipFile(source) as archive:
+        tables, _ = _read_metadata(archive)
+        available = []
+        for table in _available_table_ids(archive, geo, state):
+            paths = find_members(archive, table, geo, state)
+            available.append((table, ",".join(MEMBER_RE.fullmatch(Path(p).name).group(1).upper()
+                                               for p in paths)))
+        unknown = {table for table, _ in available} - set(tables["table"])
+        if unknown:
+            raise ValueError(f"Missing table metadata: {sorted(unknown)}")
+        inventory = pd.DataFrame(available, columns=["table", "parts"])
+        result = tables.merge(inventory, on="table", validate="one_to_one")
+    return _search_metadata(result, search)
+
+
+def describe_census(*, geo: str = "POA", state: str = "NSW",
+                    tables: Sequence[str] | None = None,
+                    source_zip: str | Path | None = None,
+                    cache_dir: str | Path = "abs_cache",
+                    search: str | None = None) -> pd.DataFrame:
+    """Describe variables, all available tables by default; does not read data rows."""
+    geo, state = _validate_geography(geo, state)
+    requested = _normalize_tables(tables) if tables is not None else None
+    _validate_search(search)
+    source = _resolve_source(geo=geo, state=state, source_zip=source_zip, cache_dir=cache_dir)
+    with ZipFile(source) as archive:
+        _, variables = _read_metadata(archive)
+        if requested is None:
+            requested = _available_table_ids(archive, geo, state)
+        parts = set()
+        for table in requested:
+            paths = find_members(archive, table, geo, state)
+            parts.update(MEMBER_RE.fullmatch(Path(p).name).group(1).upper() for p in paths)
+        result = variables.loc[variables["datapack_table"].isin(parts)].copy()
+        missing = parts - set(result["datapack_table"])
+        if missing:
+            raise ValueError(f"Metadata missing for table parts: {sorted(missing)}")
+    return _search_metadata(result, search)
+
+
+@contextmanager
+def _export_lock(out: Path):
+    """Serialize cooperating exporters; keep the inode, release OS lock on process exit."""
+    path = out / ".abs-census-etl.lock"
+    if path.is_symlink():
+        raise ValueError(f"Symlinked export lock is not supported: {path}")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except FileNotFoundError:
+        try:
+            fd = os.open(path, flags | os.O_CREAT | os.O_EXCL, 0o666)
+        except FileExistsError:
+            fd = os.open(path, flags)
+    locked = False
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError(f"Export lock is not a regular file: {path}")
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            locked = True
+        except OSError as exc:
+            busy = {errno.EAGAIN, errno.EWOULDBLOCK}
+            if os.name == "nt":
+                busy.add(errno.EACCES)
+            if exc.errno in busy:
+                raise BlockingIOError(exc.errno, f"Output folder is busy: {out}. "
+                                      "Another export holds its lock; retry when it finishes. "
+                                      "Do not delete the lock file.") from exc
+            raise OSError(exc.errno, f"Cannot lock output folder {out}: {exc}. "
+                          "Locking may be unsupported or unavailable on this filesystem; "
+                          "use a local output folder. See docs/data-guide.md#concurrent-exports.") from exc
+        yield
+    finally:
+        try:
+            if locked:
+                if os.name == "nt":
+                    import msvcrt
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+def _source_hash(stream: BinaryIO) -> str:
+    stream.seek(0)
+    digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    stream.seek(0)
+    return digest
+
+
 def export_census(*, geo: str = "POA", state: str = "NSW",
                   tables: Sequence[str] = ("G01",),
                   source_zip: str | Path | None = None,
@@ -585,170 +904,198 @@ def export_census(*, geo: str = "POA", state: str = "NSW",
         existing_parent = parent
     if not existing_parent.is_dir():
         raise NotADirectoryError(f"Export output must be a directory: {existing_parent}")
-    # Any retained journal is a conservative stop, even if malformed or its
-    # last state looks complete: a human must verify and resolve it first.
-    recovery_journals = []
-    orphan_folders = []
-    try:
-        children = list(out_dir.iterdir())
-    except FileNotFoundError:
-        children = []
-    for child in sorted(children):
-        if not child.name.startswith(".abs-export-"):
-            continue
-        journal = _recovery_journal(child)
-        if journal is None:
-            orphan_folders.append(child)
-        else:
-            recovery_journals.append(journal)
-    if recovery_journals:
-        raise _ExportRecoveryError("Unresolved export recovery journal: "
-                                   + ", ".join(f"{path} (state: {_journal_state(path)})"
-                                               for path in recovery_journals)
-                                   + ". Verify recovery, then remove or archive its "
-                                   "directory outside the output folder before exporting.")
-    if orphan_folders:
-        # Never deleted here: another export may still be staging into one.
-        warnings.warn("Staging folders without a recovery journal: "
-                      + ", ".join(str(path) for path in orphan_folders)
-                      + ". They hold unpublished files from an interrupted export or "
-                      "one still running; delete them when no export is running.",
-                      RuntimeWarning, stacklevel=2)
-    # Preflight every table before writing: old other-format exports must not
-    # remain silently in use by downstream consumers during format migration.
-    other_format = "parquet" if file_format == "csv" else "csv"
-    conflicts = [out_dir / f"2021_GCP_{geo}_{state}_{table}_{shape}.{other_format}"
-                 for table in table_ids for shape in ("wide", "long")
-                 if (out_dir / f"2021_GCP_{geo}_{state}_{table}_{shape}.{other_format}").exists()]
-    if conflicts:
-        raise FileExistsError("Other-format exports already exist: "
-                              + ", ".join(str(path) for path in conflicts) + ". "
-                              "Use a fresh output directory or keep the existing format.")
-    manifest_path = out_dir / f"2021_GCP_{geo}_{state}_manifest.json"
-    targets = {table: out_dir / (f"2021_GCP_{geo}_{state}_{table}_"
-                                 f"{'long' if long else 'wide'}.{file_format}")
-               for table in table_ids}
-    destinations = [manifest_path, *targets.values()]
-    links = [path for path in destinations if path.is_symlink()]
-    if links:
-        raise ValueError("Symlinked export files are not supported: "
-                         + ", ".join(str(path) for path in links))
-    for path in destinations:
-        if path.exists() and not path.is_file():
-            raise IsADirectoryError(f"Export file target is not a regular file: {path}")
-    # Best effort: Windows directory ACLs and file locks are not exposed by
-    # os.access. Actual staging/publication errors still need recovery.
-    read_only = [path for path in destinations
-                 if path.exists() and not os.access(path, os.W_OK)]
-    if not os.access(existing_parent, os.W_OK | os.X_OK):
-        read_only.insert(0, existing_parent)
-    if read_only:
-        raise PermissionError("Read-only export output: "
-                              + ", ".join(str(path) for path in read_only) + ". "
-                              "Make it writable or use a fresh output folder.")
     if (file_format == "parquet" and find_spec("pyarrow") is None
             and find_spec("fastparquet") is None):
         raise ValueError(PARQUET_ENGINE_HELP)
-    retained_tables = {}
-    if manifest_path.exists():
-        try:
-            previous = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (ValueError, UnicodeError) as exc:
-            raise ValueError(f"Invalid existing manifest: {manifest_path}. "
-                             "Remove only this manifest or use a fresh output folder; "
-                             "removing it discards prior inventory, not exported data.") from exc
-        if (not isinstance(previous, dict)
-                or previous.get("geography") != geo or previous.get("state") != state
-                or previous.get("census_year") != 2021 or previous.get("asgs_edition") != 3
-                or not isinstance(previous.get("tables"), dict)
-                or any(not isinstance(entry, dict) or not isinstance(entry.get("file"), str)
-                       for entry in previous["tables"].values())):
-            raise ValueError(f"Incompatible existing manifest: {manifest_path}. "
-                             "Remove only this manifest or use a fresh output folder; "
-                             "removing it discards prior inventory, not exported data.")
-        for table, entry in previous["tables"].items():
-            # Older manifests kept provenance only at the top level. Backfill
-            # those fields before combining entries from separate export calls.
-            retained = dict(entry)
-            # Handle legacy absolute paths from either operating-system family.
-            retained["file"] = PureWindowsPath(retained["file"]).name
-            for field in ("source", "source_url", "created_utc", "file_format"):
-                retained.setdefault(field, previous.get(field))
-            if retained.get("file_format") is None:
-                retained["file_format"] = Path(retained["file"]).suffix.lstrip(".")
-            if "shape" not in retained:
-                stem = Path(retained["file"]).stem
-                retained["shape"] = "long" if stem.endswith("_long") else "wide"
-            provenance = retained.get("source")
-            if isinstance(provenance, str):
-                absolute = (retained.get("source_path_kind") == "absolute"
-                            or PurePosixPath(provenance).is_absolute()
-                            or PureWindowsPath(provenance).is_absolute())
-                retained["source_path_kind"] = "absolute" if absolute else "legacy_cwd_relative"
-            retained_tables[table] = retained
-    source = _resolve_source(geo=geo, state=state, source_zip=source_zip,
-                             cache_dir=cache_dir).resolve()
-    data = _read_tables_from_zip(source=source, geo=geo, state=state, tables=table_ids,
-                                 codes=codes, keep=keep, long=long)
+    if not os.access(existing_parent, os.W_OK | os.X_OK):
+        raise PermissionError(f"Read-only export output: {existing_parent}. "
+                              "Make it writable or use a fresh output folder.")
+    if source_zip is not None and not Path(source_zip).is_file():
+        raise FileNotFoundError(f"Source ZIP is not a file: {source_zip}")
+    if source_zip is not None and not out_dir.exists():
+        _validate_zip(Path(source_zip))
     out_dir.mkdir(parents=True, exist_ok=True)
-    url = datapack_url(geo, state)
-    manifest = {"source": str(source), "source_url": url if source_zip is None else None,
-                "source_path_kind": "absolute", "file_format": file_format,
-                "manifest_scope": "latest_export_per_table",
-                "census_year": 2021, "asgs_edition": 3, "geography": geo,
-                "state": state, "created_utc": datetime.now(timezone.utc).isoformat(),
-                "tables": retained_tables}
-    work = Path(tempfile.mkdtemp(dir=out_dir, prefix=".abs-export-"))
-    staged = {}
-    try:
-        code = f"{geo}_CODE_2021"
-        for table_id, df in data.items():
-            target = targets[table_id]
-            pending = work / f"{target.name}.part"
-            if file_format == "parquet":
-                try:
-                    df.to_parquet(pending, index=False)
-                except ImportError as exc:
-                    raise ValueError(PARQUET_ENGINE_HELP) from exc
+    with _export_lock(out_dir):
+        # Inspect recovery and all mutable destination state only under the lock.
+        recovery_journals = []
+        orphan_folders = []
+        try:
+            children = list(out_dir.iterdir())
+        except FileNotFoundError:
+            children = []
+        for child in sorted(children):
+            if not child.name.startswith(".abs-export-"):
+                continue
+            journal = _recovery_journal(child)
+            if journal is None:
+                orphan_folders.append(child)
             else:
-                df.to_csv(pending, index=False)
-            if target.exists():
-                shutil.copymode(target, pending)
-            staged[target] = pending
-            n_areas = df[code].nunique() if long else len(df)
-            manifest["tables"][table_id] = {
-                "file": target.name, "areas": n_areas,
-                "rows": len(df), "columns": df.columns.tolist(),
-                "source": str(source), "source_url": manifest["source_url"],
-                "source_path_kind": "absolute",
-                "created_utc": manifest["created_utc"], "file_format": file_format,
-                "shape": "long" if long else "wide",
-            }
-        pending_manifest = work / f"{manifest_path.name}.part"
-        mode_source = manifest_path if manifest_path.exists() else next(iter(staged.values()))
-        _write_manifest(pending_manifest, manifest, permissions_from=mode_source)
-        staged[manifest_path] = pending_manifest
-        _publish_staged(staged, work)
-    except _ExportRecoveryError:
-        raise  # Keep the recovery directory for manual repair.
-    except BaseException as error:
+                recovery_journals.append(journal)
+        if recovery_journals:
+            raise _ExportRecoveryError("Unresolved export recovery journal: "
+                                       + ", ".join(f"{path} (state: {_journal_state(path)})"
+                                                   for path in recovery_journals)
+                                       + ". Verify recovery, then remove or archive its "
+                                       "directory outside the output folder before exporting.")
+        if orphan_folders:
+            # Never delete an orphan automatically: its provenance is unknown.
+            warnings.warn("Staging folders without a recovery journal: "
+                          + ", ".join(str(path) for path in orphan_folders)
+                          + ". They hold unpublished files from an interrupted export or "
+                          "one still running; delete them when no export is running.",
+                          RuntimeWarning, stacklevel=2)
+        # Preflight every table before writing: old other-format exports must not
+        # remain silently in use by downstream consumers during format migration.
+        other_format = "parquet" if file_format == "csv" else "csv"
+        conflicts = [out_dir / f"2021_GCP_{geo}_{state}_{table}_{shape}.{other_format}"
+                     for table in table_ids for shape in ("wide", "long")
+                     if (out_dir / f"2021_GCP_{geo}_{state}_{table}_{shape}.{other_format}").exists()]
+        if conflicts:
+            raise FileExistsError("Other-format exports already exist: "
+                                  + ", ".join(str(path) for path in conflicts) + ". "
+                                  "Use a fresh output directory or keep the existing format.")
+        manifest_path = out_dir / f"2021_GCP_{geo}_{state}_manifest.json"
+        targets = {table: out_dir / (f"2021_GCP_{geo}_{state}_{table}_"
+                                     f"{'long' if long else 'wide'}.{file_format}")
+                   for table in table_ids}
+        destinations = [manifest_path, *targets.values()]
+        links = [path for path in destinations if path.is_symlink()]
+        if links:
+            raise ValueError("Symlinked export files are not supported: "
+                             + ", ".join(str(path) for path in links))
+        for path in destinations:
+            if path.exists() and not path.is_file():
+                raise IsADirectoryError(f"Export file target is not a regular file: {path}")
+        # Best effort: Windows directory ACLs and file locks are not exposed by
+        # os.access. Actual staging/publication errors still need recovery.
+        read_only = [path for path in destinations
+                     if path.exists() and not os.access(path, os.W_OK)]
+        if not os.access(existing_parent, os.W_OK | os.X_OK):
+            read_only.insert(0, existing_parent)
+        if read_only:
+            raise PermissionError("Read-only export output: "
+                                  + ", ".join(str(path) for path in read_only) + ". "
+                                  "Make it writable or use a fresh output folder.")
+        retained_tables = {}
+        if manifest_path.exists():
+            try:
+                previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (ValueError, UnicodeError) as exc:
+                raise ValueError(f"Invalid existing manifest: {manifest_path}. "
+                                 "Remove only this manifest or use a fresh output folder; "
+                                 "removing it discards prior inventory, not exported data.") from exc
+            if (not isinstance(previous, dict)
+                    or previous.get("geography") != geo or previous.get("state") != state
+                    or previous.get("census_year") != 2021 or previous.get("asgs_edition") != 3
+                    or not isinstance(previous.get("tables"), dict)
+                    or any(not isinstance(entry, dict) or not isinstance(entry.get("file"), str)
+                           for entry in previous["tables"].values())):
+                raise ValueError(f"Incompatible existing manifest: {manifest_path}. "
+                                 "Remove only this manifest or use a fresh output folder; "
+                                 "removing it discards prior inventory, not exported data.")
+            for table, entry in previous["tables"].items():
+                # Older manifests kept provenance only at the top level. Backfill
+                # those fields before combining entries from separate export calls.
+                retained = dict(entry)
+                # Handle legacy absolute paths from either operating-system family.
+                retained["file"] = PureWindowsPath(retained["file"]).name
+                for field in ("source", "source_url", "created_utc", "file_format"):
+                    retained.setdefault(field, previous.get(field))
+                if retained.get("file_format") is None:
+                    retained["file_format"] = Path(retained["file"]).suffix.lstrip(".")
+                if "shape" not in retained:
+                    stem = Path(retained["file"]).stem
+                    retained["shape"] = "long" if stem.endswith("_long") else "wide"
+                provenance = retained.get("source")
+                if isinstance(provenance, str):
+                    absolute = (retained.get("source_path_kind") == "absolute"
+                                or PurePosixPath(provenance).is_absolute()
+                                or PureWindowsPath(provenance).is_absolute())
+                    retained["source_path_kind"] = "absolute" if absolute else "legacy_cwd_relative"
+                retained.setdefault("source_sha256", None)
+                retained_tables[table] = retained
+        source = _resolve_source(geo=geo, state=state, source_zip=source_zip,
+                                 cache_dir=cache_dir).resolve()
+        with source.open("rb", buffering=0) as stream:
+            source_sha256 = _source_hash(stream)
+            data = _read_tables_from_zip(source=stream, geo=geo, state=state, tables=table_ids,
+                                         codes=codes, keep=keep, long=long)
+            if _source_hash(stream) != source_sha256:
+                raise ValueError(f"Source ZIP changed during export: {source}; retry with a stable copy")
+        url = datapack_url(geo, state)
+        manifest = {"source": str(source), "source_url": url if source_zip is None else None,
+                    "source_path_kind": "absolute", "file_format": file_format,
+                    "manifest_scope": "latest_export_per_table", "source_sha256": source_sha256,
+                    "census_year": 2021, "asgs_edition": 3, "geography": geo,
+                    "state": state, "created_utc": datetime.now(timezone.utc).isoformat(),
+                    "tables": retained_tables}
+        work = Path(tempfile.mkdtemp(dir=out_dir, prefix=".abs-export-"))
+        staged = {}
+        try:
+            code = f"{geo}_CODE_2021"
+            for table_id, df in data.items():
+                target = targets[table_id]
+                pending = work / f"{target.name}.part"
+                if file_format == "parquet":
+                    try:
+                        df.to_parquet(pending, index=False)
+                    except ImportError as exc:
+                        raise ValueError(PARQUET_ENGINE_HELP) from exc
+                else:
+                    df.to_csv(pending, index=False)
+                if target.exists():
+                    shutil.copymode(target, pending)
+                staged[target] = pending
+                n_areas = df[code].nunique() if long else len(df)
+                manifest["tables"][table_id] = {
+                    "file": target.name, "areas": n_areas,
+                    "rows": len(df), "columns": df.columns.tolist(),
+                    "source": str(source), "source_url": manifest["source_url"],
+                    "source_path_kind": "absolute", "source_sha256": source_sha256,
+                    "created_utc": manifest["created_utc"], "file_format": file_format,
+                    "shape": "long" if long else "wide",
+                }
+            pending_manifest = work / f"{manifest_path.name}.part"
+            mode_source = manifest_path if manifest_path.exists() else next(iter(staged.values()))
+            _write_manifest(pending_manifest, manifest, permissions_from=mode_source)
+            staged[manifest_path] = pending_manifest
+            _publish_staged(staged, work)
+        except _ExportRecoveryError:
+            raise  # Keep the recovery directory for manual repair.
+        except BaseException as error:
+            leftover = _cleanup_export(work)
+            if leftover:
+                # A note, not a new exception, so the export error stays visible.
+                error.add_note(leftover)
+            raise
         leftover = _cleanup_export(work)
         if leftover:
-            # A note, not a new exception, so the export error stays visible.
-            error.add_note(leftover)
-        raise
-    leftover = _cleanup_export(work)
-    if leftover:
-        warnings.warn(leftover, RuntimeWarning, stacklevel=2)
-    return targets
+            warnings.warn(leftover, RuntimeWarning, stacklevel=2)
+        return targets
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     """CLI entry point; accepts an argument list for testing/embedding."""
-    args = args_parser().parse_args(argv)
+    parser = args_parser()
+    args = parser.parse_args(argv)
+    if args.search is not None and not (args.list_tables or args.describe):
+        parser.error("--search requires --list-tables or --describe")
+    if args.list_tables or args.describe:
+        if args.codes is not None or args.keep is not None or args.long:
+            parser.error("metadata discovery does not accept --codes, --keep or --long")
+        if args.list_tables and args.tables is not None:
+            parser.error("--list-tables lists every available table; use --search to filter")
+        options = dict(geo=args.geo, state=args.state, source_zip=args.source_zip,
+                       cache_dir=args.out / "raw", search=args.search)
+        if args.describe:
+            frame = describe_census(tables=args.tables, **options)
+        else:
+            frame = list_census_tables(**options)
+        print(frame.to_csv(sep="\t", index=False), end="")
+        return 0
     if args.list_columns:
         data = load_census_tables(geo=args.geo, state=args.state,
-                                  tables=args.tables, source_zip=args.source_zip,
+                                  tables=args.tables or ["G01"], source_zip=args.source_zip,
                                   cache_dir=args.out / "raw")
         code = f"{args.geo}_CODE_2021"
         for table, df in data.items():
@@ -758,7 +1105,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     with warnings.catch_warnings(record=True) as caught:
         try:
-            outputs = export_census(geo=args.geo, state=args.state, tables=args.tables,
+            outputs = export_census(geo=args.geo, state=args.state, tables=args.tables or ["G01"],
                                     source_zip=args.source_zip,
                                     cache_dir=args.out / "raw", codes=args.codes,
                                     keep=args.keep, long=args.long, out=args.out,

@@ -427,11 +427,11 @@ class ABSModuleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unknown column"):
             load_census(source_zip=self.source, table="G01", keep=["Median_age_P"])
 
-    def test_wrong_state_export_fails_before_creating_output(self):
+    def test_wrong_state_export_creates_only_coordination_file(self):
         out = self.base / "wrong_state"
         with self.assertRaisesRegex(ValueError, "state VIC"):
             export_census(source_zip=self.source, state="VIC", out=out)
-        self.assertFalse(out.exists())
+        self.assertEqual([p.name for p in out.iterdir()], [".abs-census-etl.lock"])
 
     def test_mixed_state_zip_selects_requested_state(self):
         source = make_zip(self.base / "mixed.zip", extra={
@@ -531,7 +531,7 @@ class ABSModuleTests(unittest.TestCase):
                     self.assertIn("2001", str(caught.exception))
                 if "9999" in codes:
                     self.assertIn("9999", str(caught.exception))
-                self.assertFalse(out.exists())
+                self.assertEqual([p.name for p in out.iterdir()], [".abs-census-etl.lock"])
 
     def test_unmatched_nt_input_is_not_silently_accepted_after_padding(self):
         source = make_nt_zip(self.base / "nt.zip")
@@ -546,7 +546,7 @@ class ABSModuleTests(unittest.TestCase):
                            text=True, capture_output=True)
         self.assertEqual(p.returncode, 1)
         self.assertIn("2001", p.stderr)
-        self.assertFalse(out.exists())
+        self.assertEqual([p.name for p in out.iterdir()], [".abs-census-etl.lock"])
 
     def test_csv_roundtrip_preserves_bare_nt_leading_zeroes(self):
         source = make_nt_zip(self.base / "nt_bare.zip", bare=True)
@@ -573,6 +573,7 @@ class ABSModuleTests(unittest.TestCase):
                     with self.assertRaisesRegex(FileExistsError, "fresh output directory"):
                         export_census(source_zip=self.source, tables=["G01", "G04"],
                                       out=out, file_format=new_format, long=new_long)
+                    before[".abs-census-etl.lock"] = b""
                     self.assertEqual({p.name: p.read_bytes() for p in out.iterdir()}, before)
 
     def test_same_format_rerun_updates_requested_files(self):
@@ -621,8 +622,10 @@ class ABSModuleTests(unittest.TestCase):
         out.mkdir()
         existing = out / "2021_GCP_POA_NSW_G01_wide.parquet"
         existing.write_bytes(b"existing data")
+        invalid_archive = self.base / "not_an_archive.zip"
+        invalid_archive.write_bytes(b"not a ZIP: format refusal must precede opening it")
         with patch("abs_census_etl._resolve_source", side_effect=AssertionError("source accessed")):
-            for source in [None, self.base / "does_not_exist.zip"]:
+            for source in [None, invalid_archive]:
                 with self.subTest(source=source):
                     with self.assertRaises(FileExistsError) as caught:
                         export_census(source_zip=source, out=out)
@@ -631,7 +634,7 @@ class ABSModuleTests(unittest.TestCase):
             with patch("sys.stdout", new_callable=io.StringIO):
                 with self.assertRaises(FileExistsError):
                     main(["--geo", "POA", "--out", str(out)])
-        self.assertEqual(list(out.iterdir()), [existing])
+        self.assertEqual(set(out.iterdir()), {existing, out / ".abs-census-etl.lock"})
 
     def test_poa_whole_number_floats_from_spreadsheets(self):
         source = make_nt_zip(self.base / "float_nt.zip")
@@ -695,7 +698,7 @@ class ABSModuleTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         export_census(out=out)
                 self.assertEqual(path.read_text(), content)
-                self.assertEqual(list(out.iterdir()), [path])
+                self.assertEqual(set(out.iterdir()), {path, out / ".abs-census-etl.lock"})
 
     def test_manifest_backfills_provenance_from_older_schema(self):
         out = self.base / "old_schema"
@@ -1095,7 +1098,7 @@ print(json.dumps([stat.S_IMODE(paths["G01"].stat().st_mode),
         with patch.object(Path, "replace", replace):
             with self.assertRaises(PermissionError):
                 export_census(source_zip=self.source, tables=["G01", "G02"], out=out)
-        self.assertEqual(list(out.iterdir()), [])
+        self.assertEqual(list(out.iterdir()), [out / ".abs-census-etl.lock"])
 
     def test_rollback_failure_retains_backup_and_reports_recovery(self):
         out = self.base / "rollback_failure"

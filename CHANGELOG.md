@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- Unexpected or nonfinite numeric measure tokens now raise with source context
+  instead of becoming missing silently. Only explicit missing markers are accepted.
+- Cached and explicit ZIPs receive quick directory and member-header checks that
+  refuse encrypted or unsupported-compression members; selected members get CRC
+  validation when read. New downloads receive a full CRC scan once. Archive
+  errors name the ZIP and recovery steps without CLI tracebacks.
+- Exports serialize cooperating writers using a persistent output lock file.
+  A busy folder fails before source access; unsupported lock errors retain their
+  OS cause and recommend a local folder. Existing locks need read access only.
+  Missing explicit ZIP paths or invalid ZIP directories leave no fresh output
+  folder. Failures requiring data access can leave the coordination file; do not
+  delete it while an export may run.
+
+### Added
+
+- Per-table and latest-call source ZIP SHA-256 values in cumulative manifests;
+  historical entries without a known digest are explicitly marked unknown.
+- Table/variable discovery from official ABS XLSX metadata through
+  `list_census_tables`, `describe_census`, `--list-tables` and `--describe`, with
+  literal text searches and logical/split-table selection. Lettered profile
+  sections are retained separately from logical table IDs and CSV part IDs.
+- 2021 GCP support for SA2, SA3, SA4, LGA, SED, CED, STE and SAL alongside POA/SA1.
+  Filters accept bare or prefixed codes while preserving source identifiers.
+- Optional real-ABS regression checks with independent QuickStats references,
+  split-table source comparisons, metadata and hash verification.
+- Guidance for export contention, regenerating outputs after interrupted
+  publication, and the purpose of repository development records.
+
 ## 0.1.0 — 2026-10-20
 
 ### Breaking changes

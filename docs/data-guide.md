@@ -5,6 +5,10 @@ need the app installed in your Python 3.14 environment, using the
 [direct module install](../README.md#install-as-a-python-module) or
 [source setup](../README.md#setup).
 
+The integrity, discovery and additional-geography features described here are
+unreleased changes in the current source checkout. They are not included in the
+published v0.1.0 wheel. Reinstall the current source through Setup before using them.
+
 ## Use from Python
 
 ```python
@@ -62,7 +66,7 @@ are padded to four digits: `800` and `800.0` match `"0800"`, and `2000.0` matche
 `"2000"`. Fractional numbers, negative values, infinities, NaN, booleans, unsupported
 numeric types such as Decimal, blank values, and decimal strings such as `"800.0"` are
 rejected. Drop blank spreadsheet cells before passing codes; prefer string columns to
-preserve identifiers. SA1 floats are not coerced. Any unmatched code raises
+preserve identifiers. Floats for non-POA geographies are not coerced. Any unmatched code raises
 `ValueError`, including a partly matched request such as `codes=["2000", "2001"]` when
 only 2000 is present. An empty `codes=[]` also raises; omit `codes` to select all areas.
 Matching stays strict; there is no ignore-missing option. Malformed code inputs are
@@ -77,9 +81,77 @@ darwin = load_census(geo="POA", state="NT", table="G01", codes=["0800"])
 
 The requested `state` must match the CSV members in a local archive too. An `AUS`
 request requires national (`AUST`) members; it does not combine state files. This
-applies to both POA and SA1. Direct `find_members` and `combine_table` calls may omit
+applies to every supported geography. Direct `find_members` and `combine_table` calls may omit
 `state` only when the requested table/parts belong to one state; mixed-state candidates
 require an explicit state, even when the geographic codes happen to match.
+
+## Supported geographies and discovery
+
+Only 2021 GCP files are supported. The member year, code-column year and manifest
+vintage remain 2021; files from 2016 or other years are not combined.
+
+| Geography | Meaning | Example NSW source identifier |
+| --- | --- | --- |
+| POA | Postal Areas (postcode approximations) | POA2000 |
+| SA1 | Statistical Areas Level 1 | 10201102801 |
+| SA2 | Statistical Areas Level 2 | 101021007 |
+| SA3 | Statistical Areas Level 3 | 10102 |
+| SA4 | Statistical Areas Level 4 | 101 |
+| LGA | Local Government Areas | LGA17200 |
+| SED | State Electoral Divisions | SED10001 |
+| CED | Commonwealth Electoral Divisions | CED101 |
+| STE | States and Territories | 1 |
+| SAL | Suburbs and Localities | SAL10001 |
+
+The registry is exposed as `GEOGRAPHIES`. Codes are strings in returned data;
+filters accept bare digits, the matching geography prefix, case variations and
+surrounding whitespace. Integer filters work too; only POA accepts whole-number
+floats and pads to four digits. Special numeric identifiers used for offshore,
+migratory and no-usual-address areas are retained. Their meaning comes from ABS
+geography metadata, not from guessing based on the number. No boundary allocation,
+spatial joins or cross-vintage correspondence is performed.
+
+The complete official DataPack contains
+`Metadata/Metadata_2021_GCP_DataPack_R1_R2.xlsx`. Discovery reads its **Table Number,
+Name, Population** and **Cell Descriptors Information** sheets. It needs no extra
+Excel package and does not evaluate formulas. A missing, ambiguous or malformed
+workbook raises an error; CSV-only extraction still works without the workbook.
+The original short measure names remain unchanged in wide and long data.
+
+```python
+from abs_census_etl import list_census_tables, describe_census
+
+tables = list_census_tables(geo="LGA", state="NSW", search="income")
+variables = describe_census(
+    geo="LGA", state="NSW", tables=["G02"], search="age",
+)
+print(tables)     # table, name, population, parts
+print(variables)  # table, profile_table, datapack_table, variable, long_name, ...
+```
+
+Both functions accept `source_zip` and `cache_dir` just like extraction. Table
+listing includes available logical tables, with split parts in `parts`. Variable
+descriptions search all available tables by default; pass `tables` to narrow
+them. They accept logical IDs such as G04 or an individual part such as G04A.
+`table` is the logical ID, such as G09; `profile_table` preserves the workbook
+value, such as G09a or G09b. Profile sections and data-file parts are different:
+the real G09C data file contains variables from both G09a and G09b. The
+`datapack_table` field identifies the CSV part. No lettered profile rows are
+dropped when searching all tables. `long_name` is the official full descriptor,
+while `description` is the profile's column-heading text (often just "Persons"). Search matches any returned field as
+literal text, case-insensitively. An empty result is valid; missing table requests
+still raise. These functions inspect metadata and member names, not measure rows.
+
+CLI equivalents (source checkout, substitute the Windows environment interpreter):
+
+```bash
+.venv/bin/python abs_census_etl.py --geo LGA --state NSW --list-tables --search income
+.venv/bin/python abs_census_etl.py --geo LGA --state NSW --describe --search median_age
+```
+
+Discovery emits tab-separated columns. `--list-tables`, `--describe` and
+`--list-columns` are mutually exclusive. `--search` needs a metadata command;
+metadata commands reject data-selection options `--codes`, `--keep` and `--long`.
 
 ## CLI
 
@@ -94,6 +166,34 @@ On Windows, use `.venv\Scripts\abs-census-etl.exe` instead. From another working
 directory, use the absolute path to that environment's launcher. `python -m
 abs_census_etl` also works with the environment's Python; direct `python
 abs_census_etl.py` use from the checkout remains supported.
+
+## Numeric and source integrity
+
+All CSV fields are read as text before numeric conversion. After whitespace
+trimming, only these case-insensitive tokens become missing measures: empty text,
+`..`, `...`, `-`, `np`, `n.p.`, `na`, `n/a`, `null`, `none`. Unexpected tokens such
+as `12a`, quoted `"1,234"`, `NaN` and infinity raise `ValueError` with the member,
+column, geographic code and token. Finite decimal and scientific notation are
+accepted. Measures are validated before filtering rows or selecting columns, so
+bad values outside the requested area also fail. Blank or duplicate geography
+codes remain errors. This is numeric parsing, not a semantic check that every
+measure has the right unit, plausible magnitude or exact arbitrary precision.
+
+Cached ZIPs and explicit `source_zip` / `--zip` archives receive the same quick
+check of the central directory and each member's local header, with no payload
+decompression. It refuses encrypted members and compression methods this Python
+cannot read, such as Deflate64 from some re-zipping tools. As selected members
+are read, Python's zipfile checks their CRCs. Corruption in an unread member may
+remain undetected by a selective extraction; this is not a full archive audit.
+New downloads get a full CRC scan once before entering the cache. This avoids
+repeated scans of large national packs on every cache hit. Corrupt files are left
+intact for inspection. Archive failures, including unreadable members, invalid
+compressed streams, truncation and CRC errors, name the containing ZIP archive
+and say to move it aside and download again, or supply a valid local archive.
+The CLI prints a clean `ERROR:` rather than a decompression traceback. A
+syntactically valid ZIP can still be the wrong pack; state/geography/member
+checks then refuse it. A checksum is a content identifier, not independent proof
+of ABS authenticity.
 
 ## Export formats and validation
 
@@ -148,7 +248,13 @@ file name, source archive/URL, format, creation time, shape, rows and columns. T
 `manifest_path.parent / entry["file"]`, regardless of the working directory. Legacy
 absolute/cwd-relative export paths are converted to basenames when the manifest is next
 updated. The returned export paths are unchanged. New source-archive provenance is an
-absolute resolved path. Retained legacy relative sources keep their original text and
+absolute resolved path. Each new table entry and the latest-call top level include
+`source_sha256`, the SHA-256 of the ZIP bytes read. Hashing and extraction use the
+same open file; another hash after reading detects an in-place source change
+before publication. Retained entries keep their original hashes even when a
+source path now holds different bytes. Entries from older manifests without a
+hash receive JSON `null`; the current contents of an old path cannot prove its
+historical identity. Retained legacy relative sources keep their original text and
 are marked `source_path_kind="legacy_cwd_relative"`; their old working directory cannot
 be reconstructed reliably. Absolute labels from earlier exports are preserved;
 unlabelled paths are checked using both POSIX and Windows path syntax, independently of
@@ -161,6 +267,34 @@ Errors explain how to recover: use a fresh output folder, or remove only the JSO
 manifest and rerun. Removing it discards the inventory of earlier exports; it does not
 delete CSV/Parquet data. The new manifest will list only tables exported after recovery.
 Nothing is removed automatically.
+
+## Concurrent exports
+
+Cooperating exports acquire an exclusive operating-system lock on the output
+folder's persistent `.abs-census-etl.lock` file. It covers recovery checks,
+format/destination checks, reading the previous manifest, loading the source,
+staging, publication and cleanup. A competing process fails with a busy message
+before source access; wait for the first process to finish and retry. The OS
+releases the lock on exceptions or process termination. The empty lock file
+stays in place deliberately; **do not delete it**, since replacing its inode can
+allow two processes to lock different files. A missing/non-file explicit ZIP path
+or invalid ZIP directory is rejected before creating a fresh output folder.
+Existing-folder destination checks retain priority over opening the source.
+Errors that require reading member payloads (damaged contents, wrong state or
+unmatched codes) can leave
+a new folder containing just this coordination file; no data was published.
+Removing it on error would race other exporters, so it is not deleted.
+
+This protects cooperating application writers, not arbitrary programs editing
+files or readers requiring an atomic multi-file snapshot. Network filesystem
+locking semantics depend on the OS and server; use a local output directory if
+reliable advisory locks are unavailable. Only would-block errors report a busy
+folder. Unsupported/unavailable locking reports the underlying OS error and the
+local-folder remedy instead of telling you to retry forever. Existing lock files
+are opened read-only so shared users do not need write permission on that file;
+creating the first lock and writing exports still require the appropriate output
+folder/file permissions. The lock is not a recovery journal and its presence
+alone does not mean an export is running.
 
 ## Export recovery
 
@@ -208,13 +342,27 @@ CLI prints these as `WARNING:` lines or after the `ERROR:` line.
 If journal updates fail, the error warns that the journal may be stale and keeps the
 recovery directory. If SIGKILL or power loss interrupts publication, the last
 `publishing` status may be uncertain: inspect pending files, backups, and published
-targets before repairing. This is not an atomic snapshot for concurrent readers/writers,
+targets before repairing. This is not an atomic snapshot for concurrent readers
+or non-cooperating writers,
 and no power-loss durability guarantee is made. A crash during staging before the
 journal exists has not published anything. Export never opens or deletes files in
 `.abs-export-*` folders without a journal, but it warns about them with
 `RuntimeWarning`, listing each one: they can hold full-size `.part` payloads. Delete
 them only when no export is running, since an export still in progress also has such a
 folder. Extra staging/backup space is required.
+
+### Regenerate instead of repairing manually
+
+For regenerable extracts, the simplest recovery is to leave the affected folder
+intact and export to a **new folder**, supplying the original archive with
+`--zip old_out/raw/2021_GCP_POA_for_NSW_short-header.zip` (or `source_zip` in
+Python) to avoid another download. Reuse the original selection and format.
+Check the new results before pointing downstream jobs at them. Keep the old
+folder and recovery backups until satisfied; do not mix old and new outputs or
+copy an uncertain manifest over the new one. If retaining the old output folder,
+follow the journal inspection/repair steps above, then archive its recovery
+directory outside the output folder. There is no automatic replay or deletion
+of recovery data.
 
 ## Geography/data caveats
 

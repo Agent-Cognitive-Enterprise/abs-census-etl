@@ -1,9 +1,15 @@
 # ABS Census ETL
 
 Read **2021 Census General Community Profile (GCP)** DataPack ZIPs from the Australian
-Bureau of Statistics (ABS). Select postal areas (POA) or small statistical areas (SA1),
-join split tables, and export CSV or optional Parquet. Geography codes stay strings,
+Bureau of Statistics (ABS). Select geographic areas and variables, discover table
+and variable descriptions, join split tables, and export CSV or optional Parquet.
+Geography codes stay strings,
 preserving leading zeros such as Darwin `0800`.
+
+The additional geographies and discovery commands below are **unreleased source
+features**. Published v0.1.0 supports POA and SA1; its installation URLs remain
+pinned to that release. Use the current checkout and reinstall it through
+[Setup](#setup) to try these changes before a new release.
 
 ## Use and responsibility
 
@@ -144,6 +150,33 @@ select the matching `--geo` and `--state`. Use `--help` for all options. For Dar
 output; request only areas present in the selected pack. Empty or partly unmatched
 selections raise errors before any export is written.
 
+### Discover tables and variables
+
+From a current source checkout, list tables or find variables by their ABS long
+descriptors. On Windows replace `.venv/bin/python` with
+`.venv\Scripts\python.exe`:
+
+```bash
+.venv/bin/python abs_census_etl.py --geo POA --state NSW --list-tables
+.venv/bin/python abs_census_etl.py --geo POA --state NSW --describe --search median_age
+```
+
+Add `--zip path/to/DataPack.zip` for offline discovery. It uses the metadata
+workbook included in the complete ABS pack, without reading measure rows or
+writing exports. `--search` is a case-insensitive literal match, not a regular
+expression. Results are tab-separated; zero matches produce just the headings.
+
+Supported 2021 geographies are **POA, SA1, SA2, SA3, SA4, LGA, SED, CED, STE and
+SAL**. For example, use `--geo LGA --codes 17200` for Sydney in the NSW LGA pack,
+or `--geo SA2 --codes 101021007` for Braidwood. Filters accept prefixed or bare
+codes; returned codes retain the source format. Geography/state must match the
+pack; this does not convert boundaries or combine Census years. See the
+[geography and discovery guide](docs/data-guide.md#supported-geographies-and-discovery).
+
+Unexpected numeric tokens now stop extraction with a member/column/area/value
+error. Exports record the source ZIP's SHA-256 per table. Concurrent exports to
+one folder are refused with a busy message; retry after the other export finishes.
+
 ## Install as a Python module
 
 Use Python **3.14 from your own project's virtual environment**. Pip can
@@ -198,7 +231,8 @@ the verified application release archive.
 If no release exists, **Code → Download ZIP** or a Git clone provides unreleased
 source for development; it is not a release. The ZIP extracts to an
 `abs-census-etl-main` folder and a clone creates `abs-census-etl`; open the terminal
-inside that folder. Python **3.14** is required for source setup. Managed installers above are alternatives. Historical native
+inside that folder. Python **3.14** is required for source setup. Managed
+installers above are alternatives. Historical native
 coverage and revision limits are in
 [recorded native validation](docs/development.md#recorded-native-validation).
 
@@ -300,6 +334,7 @@ step-by-step removal see [Windows](docs/installation.md#windows-uninstall) or
 | Parquet engine missing | Repeat install with `-Parquet` / `--parquet`, then export with `--format parquet` |
 | Unmatched area code | Check state, geography and actual areas in the pack; preserve leading zeros |
 | Export reports another format | Keep that format or choose a fresh output folder |
+| Export reports a busy folder | Wait for the other export to finish and retry; do not delete `.abs-census-etl.lock` |
 | Export reports a recovery journal | Read the [recovery guidance](docs/data-guide.md#export-recovery); do not delete it just to bypass the check |
 | Windows permissions or policy refusal | Use a private profile folder and normal token; follow local IT policy |
 
@@ -328,7 +363,9 @@ environment](docs/development.md#platforms-and-development):
 ```
 
 On Windows, replace `.venv/bin/python` with `.venv\Scripts\python.exe`. These checks use
-offline fixtures. Network packaging and installer smokes are separate; see the
+offline fixtures. The optional genuine-ABS regression check downloads official packs and compares
+selected values with linked ABS QuickStats references. Network packaging and
+installer smokes are separate; see the
 [validation commands](docs/development.md#tests).
 
 ## Release checks for maintainers
@@ -338,3 +375,10 @@ manual publication. A dated maintainer handoff is kept in
 `docs/release-readiness.md` in the Git checkout only; it is not included in app
 archives and must be refreshed before each release. A signed-off implementation does not publish a
 release or demonstrate that hosted workflows have run.
+
+## Project development records
+
+`AGENTS.md` and the daily records under `docs/progress/` document the
+project's human-directed implementation and independent-review workflow. They
+are kept in the Git repository for transparency; they are not installation
+instructions and are excluded from the app archives.
