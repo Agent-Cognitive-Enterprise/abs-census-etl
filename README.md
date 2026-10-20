@@ -6,10 +6,9 @@ and variable descriptions, join split tables, and export CSV or optional Parquet
 Geography codes stay strings,
 preserving leading zeros such as Darwin `0800`.
 
-The additional geographies and discovery commands below are **unreleased source
-features**. Published v0.1.0 supports POA and SA1; its installation URLs remain
-pinned to that release. Use the current checkout and reinstall it through
-[Setup](#setup) to try these changes before a new release.
+Version **0.2.0** adds broader geography support, searchable ABS metadata,
+strict numeric validation and source ZIP hashes. Census year support remains
+2021 only. See [the changelog](CHANGELOG.md) for changes from 0.1.0.
 
 ## Use and responsibility
 
@@ -184,13 +183,13 @@ install the published wheel directly from GitHub; no repository copy or Git
 installation is needed:
 
 ```bash
-python -m pip install "https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/releases/download/v0.1.0/abs_census_etl-0.1.0-py3-none-any.whl"
+python -m pip install "https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/releases/download/v0.2.0/abs_census_etl-0.2.0-py3-none-any.whl"
 ```
 
 For optional Parquet support:
 
 ```bash
-python -m pip install "abs-census-etl[parquet] @ https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/releases/download/v0.1.0/abs_census_etl-0.1.0-py3-none-any.whl"
+python -m pip install "abs-census-etl[parquet] @ https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/releases/download/v0.2.0/abs_census_etl-0.2.0-py3-none-any.whl"
 ```
 
 Here `python` must be that project's environment interpreter; substitute its
@@ -212,7 +211,7 @@ and does not add imports to your other Python projects.
 
 For a released version, open the repository's **Releases** page and download
 `abs_census_etl-VERSION.tar.gz` from that release's assets, where `VERSION` is the
-release number, such as `0.1.0`. Open a terminal in the folder containing the download
+release number, such as `0.2.0`. Open a terminal in the folder containing the download
 (usually `cd ~/Downloads`, which also works in PowerShell), then extract the archive
 and enter the folder it creates:
 

@@ -5,9 +5,8 @@ need the app installed in your Python 3.14 environment, using the
 [direct module install](../README.md#install-as-a-python-module) or
 [source setup](../README.md#setup).
 
-The integrity, discovery and additional-geography features described here are
-unreleased changes in the current source checkout. They are not included in the
-published v0.1.0 wheel. Reinstall the current source through Setup before using them.
+This guide covers version 0.2.0, including searchable metadata and ten supported
+2021 geographies. Users of 0.1.0 should update before using the new APIs.
 
 ## Use from Python
 

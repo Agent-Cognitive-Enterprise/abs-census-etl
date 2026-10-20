@@ -211,8 +211,8 @@ passed on ce34be5; each release tag must pass its own run.
 From a source checkout with development Python and uv, prepare a local bundle:
 
 ```bash
-.venv/bin/python scripts/release.py build --tag v0.1.0
-.venv/bin/python scripts/release.py verify --tag v0.1.0
+.venv/bin/python scripts/release.py build --tag v0.2.0
+.venv/bin/python scripts/release.py verify --tag v0.2.0
 ```
 
 Use the actual `project.version` for a release. Output defaults to `dist/release`

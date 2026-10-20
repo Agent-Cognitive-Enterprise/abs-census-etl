@@ -312,7 +312,7 @@ script are included in the source archive's exact allow-list.
 Maintainers refresh this dated section before each release; results apply to
 the linked commit, not automatically to every later source download.
 
-On **2026-10-20**, [hosted CI for commit ce34be5][hosted-ci] passed the build,
+On **2026-10-20**, [release validation for v0.1.0][hosted-ci] passed the build,
 unit/mutation/packaging checks and native installer jobs on:
 
 - Ubuntu 24.04 x86-64 and ARM64;
@@ -320,10 +320,11 @@ unit/mutation/packaging checks and native installer jobs on:
 - Windows Server 2025 x64, including PowerShell syntax, elevated refusal,
   restricted-token unit tests and PowerShell 5.1/7 installer checks.
 
-That is hosted evidence after the MIT/archive and Windows elevation-probe
-changes. It supersedes the earlier statement that Linux ARM64 and Intel macOS
-were only configured targets. The 0.1.0 tag must still pass its own release
-workflow; ce34be5 predates that version change.
+These are completed results for the preceding release. Version 0.2.0 must pass
+its own release workflow on its tagged source; the linked run predates the
+additional geographies and discovery APIs. The daily progress record preserves
+local/native feature checks and their exact runtime hashes, rather than treating
+an older hosted run as evidence for a later revision.
 
 Earlier local runs included Linux x86-64, macOS ARM64 and Windows 11 x64. Both
 hosted and local Windows testing used restricted tokens, not a separately
@@ -333,4 +334,4 @@ published application-download route is checked only after publication; local
 release-directory smokes do not prove it. A wheel/platform table alone is not
 native evidence. Actions uploads retain native log artifacts for 14 days.
 
-[hosted-ci]: https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/actions/runs/39361189657
+[hosted-ci]: https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/actions/runs/39364324272

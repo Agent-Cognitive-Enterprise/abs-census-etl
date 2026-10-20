@@ -1,110 +1,87 @@
-# Release handoff — snapshot of 2026-10-20
+# Release handoff — 0.2.0 candidate, 2026-10-20
 
-This is a **checkout-only, historical snapshot**, excluded from application
-archives. Refresh version, evidence and policy status before each release.
+This checkout-only snapshot is excluded from application archives. Refresh it
+before a later release. Publication results belong in the daily progress record;
+a candidate checklist is not proof that its release workflow passed.
 
-This records implementation and validation status. It is not authorization to publish, a
-hosted-CI result, or a guarantee that every supported target works. The owner signed off
-all six implementation slices and delegated preparation/publication of 0.1.0.
-This snapshot is prepared before that publication; its outcome belongs in the
-daily progress record.
+## Scope and authority
 
-## Distribution snapshot
+The owner signed off slices 7–10 and requested “Publish next release”. That
+explicitly authorizes preparation and publication of 0.2.0 through the existing
+manual workflow. The accepted implementation is commit
+42c5abfa83dd5f470285f896eae514348d69fec8. Release preparation changes metadata and
+documentation, not runtime, installers, tests, workflows or dependency pins.
 
-- GitHub Releases only; no PyPI publishing workflow.
-- Release candidate version: `0.1.0`; the release tag must match project metadata.
-- MIT license, with the same `LICENSE` in source and wheel archives.
-- CSV by default; Parquet is an explicit install and export option.
-- Fresh download of the same installer command handles installation and updates.
-- Managed target: standard Python 3.14, native Linux x86-64/ARM64 glibc 2.28+,
-  macOS Intel/ARM64 12+, and Windows x64 10 (1803+)/11.
+Version 0.2.0 adds ten supported 2021 GCP geographies, searchable table/variable
+metadata, strict numeric validation, source hashes and cooperating-writer locks.
+It does not add historical Census years. GitHub Releases remains the distribution
+channel, with MIT licensing, CSV by default and optional Parquet.
 
-The [README](../README.md) is the beginner entry point. See
-[installation and removal](installation.md), [API and export recovery](data-guide.md),
-[development and validation](development.md), and the
-[release asset contract](release-assets.md).
+The managed target remains standard Python 3.14, native Linux x86-64/ARM64 with
+glibc 2.28+, macOS Intel/ARM64 12+, and Windows x64 10 (1803+)/11. Minimum versions,
+enterprise endpoint/proxy policies and arbitrary filesystem/power-loss behavior
+are not established by a newer wheel alone.
 
-## Validation evidence
+## Evidence to inspect
 
-The daily record `docs/progress/20261020.md` in the Git checkout records the slice-5
-review rounds, tested revisions, results and limitations. That internal progress record
-is not included in the app archives. Full raw logs and hash manifests are local ignored
-artifacts under `docs/evidence/`; they are not public evidence links and cannot be
-retrieved from a source download. Ask the maintainer for retained logs, or reproduce the
-checks below.
+The preceding [v0.1.0 release workflow](https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/actions/runs/39364324272)
+passed all five hosted targets. Its publication/public-install results and the
+subsequent slices 7–10 verification are recorded in docs/progress/20261020.md.
+Those previous checks do not certify the 0.2.0 tag. Full local/native logs and
+hash manifests are retained locally under ignored docs/evidence/ directories;
+they are not public CI artifacts or shipped application files.
 
-| Recorded round | What actually ran | Limits |
-| --- | --- | --- |
-| Slice 5 initial implementation | Native Linux x64, macOS ARM64 and Windows x64; installer first/repeat/update/failure checks | These results precede later release-tool/license edits |
-| Slice 5R1 | Linux unit/packaging/mutations and real installer smoke; Windows standard-token unit suite; full installer smoke on PowerShell 5.1 and 7 (46 assertions each); PowerShell 7 offline checks (177 assertions) | Windows stages ran separately; not a hosted checkout; no new macOS run |
-| Slice 5R2, MIT license and residual fixes | Linux 185 tests (2 platform skips), 17 release tests also under optimization, packaging, 17 mutations, licensed bundle build and real Linux installer smoke | No native Windows/macOS rerun after these changes; rewritten Windows elevation step remains unverified natively |
-| Configured GitHub Actions matrix | Ubuntu x64/ARM64, macOS ARM64/Intel and Windows x64 | Configuration only; no hosted run recorded |
+The accepted implementation's most recent local record reports 220 unit tests
+(two platform skips), 28 intended mutation failures caught, packaging checks and
+genuine ABS checks on 11 packs. Default discovery covers 16,984 variables across
+119 CSV parts per pack. Four curated QuickStats references have retained HTML
+snapshots. R3's encrypted/unsupported-member checks were revalidated on real
+packs locally, but R3 did not claim new native Windows/macOS results.
 
-These are historical results, not claims about a later checkout. Hosted CI
-[subsequently passed all five native targets](https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/actions/runs/39361189657)
-on ce34be5, superseding the earlier configured-only target and no-hosted-run
-limitations below; release 0.1.0 still needs its own validation. Slice 6's own checks
-are recorded in docs/progress/20261020.md at handoff. Linux ARM64 and Intel macOS now have hosted results in the linked CI run. Testing with a restricted Windows token is not testing
-an independently provisioned standard-user profile. Enterprise proxy/TLS/endpoint
-policies, minimum OS versions and all storage or power-loss conditions are not
-established by the recorded checks.
+For this release, require fresh local validation and all hosted matrix jobs on
+the tagged source before publication. The Release workflow runs Ubuntu x64/ARM64,
+macOS ARM64/Intel and Windows x64, including restricted-token Windows tests and
+PowerShell 5.1/7 installer smokes. A restricted token is not a separately
+provisioned standard-user profile. Uploaded log artifacts have 14-day retention;
+that is not the Actions run-log retention setting.
 
-### Reproduce validation from a checkout
+## Candidate procedure
 
-Use the [locked development setup](development.md#platforms-and-development) with
-Parquet so tests do not silently omit that feature. Then follow the
-[offline tests and native smokes](development.md#tests). Packaging and installer
-smokes use the network; the ETL fixture tests do not download ABS DataPacks.
+1. Verify version 0.2.0 in pyproject.toml and the root uv.lock entry; all other
+   dependency records/hashes must be unchanged. Review the changelog, module URLs,
+   license and installer bytes. Retain current dependency pins and document age
+   review, as directed; do not invent a new waiting-period policy.
+2. Run the [development checks](development.md#tests), including mutations and
+   packaging with Parquet. Do not sync or clear the user's existing environment
+   just to perform release validation; build/install probes use disposable venvs.
+3. Build a licensed bundle in an absent output folder:
 
-Build a fresh bundle and verify it from the project directory (use the actual project
-version if it changes). Pick an absent output directory:
+   ```bash
+   .venv/bin/python scripts/release.py build --tag v0.2.0 --assets dist/candidate-0.2.0
+   .venv/bin/python scripts/release.py verify --tag v0.2.0 --assets dist/candidate-0.2.0
+   ```
 
-```bash
-.venv/bin/python scripts/release.py build --tag v0.1.0 --assets dist/candidate
-.venv/bin/python scripts/release.py verify --tag v0.1.0 --assets dist/candidate
-.venv/bin/python tests/check_installer.py --release-dir dist/candidate
-```
+4. Commit/push the scoped release preparation, create a new annotated v0.2.0 tag
+   and push it. Never replace an existing tag or release asset.
+5. Dispatch **Release from the default branch**, supplying **v0.2.0 as the tag
+   input**, with publish=false. Do not select the tag in the workflow-ref selector:
+   that would skip validation. Inspect every job and retain source/bundle hashes.
+6. Only after validation succeeds, dispatch the existing workflow from the default
+   branch with tag=v0.2.0 and publish=true. Owner authorization is recorded above;
+   no required-reviewer environment/repository policy is changed. Publication
+   verifies assets and refuses existing releases/drafts. See the
+   [release contract](release-assets.md#build-validation-and-manual-publication)
+   for failure handling; do not silently overwrite a partial publication.
+7. Inspect the published regular/latest release and exact five assets. Anonymous
+   downloads must match the publish workflow's tested bundle. Test both direct
+   module URLs and fresh managed bootstrap/update commands in disposable homes,
+   including update from 0.1.0 with saved Parquet choice and user data retained.
+   Where practical, repeat on the authorized native Windows host. Remove private
+   test environments after collecting full logs and hashes.
+8. Record actual run IDs, publication outcome, public-download checks and limits
+   in the daily progress file; a later progress-only commit must not move the tag.
 
-On native Windows, substitute `.venv\Scripts\python.exe` and use
-`tests/check_windows_installer.py --release-dir dist/candidate` for the smoke. Use
-`--powershell` with a PowerShell 7 executable for its full smoke. Run Windows checks as
-a normal user with a private profile TEMP; the restricted-token CI wrapper is for
-elevated hosted runners. Keep output logs with the commit ID, source/bundle hashes, OS,
-architecture, interpreter and shell versions. A Linux run cannot establish Windows/macOS
-behavior. Rebuild after documentation changes because README and supporting documents
-are source-archive inputs.
-
-## Before the first public release
-
-1. Review and commit the accepted source at the owner's direction. Set matching
-   project/lock versions and create a new canonical tag; never move a release tag.
-   Before tagging, refresh this handoff and the dated **Recorded native
-   validation** section of `development.md`, which ships in the source archive.
-2. Use the existing explicit manual dispatch process for this delegated release.
-   No required-reviewer environment is configured. The broader future policy
-   remains an owner decision; no repository setting is changed here.
-3. Review dependency/build-tool changes and upload ages. The owner chose current
-   pins and documented review, without an enforced waiting period.
-4. Confirm repository Actions access, runner availability and minutes. Run the
-   manual **Release** workflow **from the default branch** (the “Use workflow
-   from” selector), with the existing tag supplied in the **tag input** and
-   `publish: false`. Do not select the tag as the workflow ref: the prepare job
-   would skip. Inspect every native job and retain its source/bundle hashes
-   and logs. Uploaded log artifacts have 14-day retention; this is not the
-   Actions run-log retention setting.
-5. Resolve hosted failures and validate the current licensed bundle on Windows
-   and macOS, including the changed Windows elevation probe. A prior native run
-   is not evidence for a later revision.
-6. Only after owner authorization, dispatch **from the default branch** with
-   the selected **tag input** and `publish: true`. Publication
-   checks names/digests and refuses existing releases/drafts; see the
-   [partial-publication guidance](release-assets.md#build-validation-and-manual-publication).
-   A development/prerelease tag will not provide a stable `releases/latest` route.
-7. After an actual stable release, test both README download commands against
-   GitHub's real application assets in isolated accounts/homes, including repeat
-   installation, update and failure retention. Local `--release-dir` smokes do
-   not prove the application's published download path.
-
-No public release, real upload, hosted workflow run or repository-setting change is
-performed by this documentation slice. Human acceptance of code and actual publication
-remain separate actions.
+The [README](../README.md) is the user entry point. The
+[installation guide](installation.md), [data guide](data-guide.md) and
+[release contract](release-assets.md) provide detailed procedures. No publication
+or hosted validation is claimed merely by preparing this candidate document.
