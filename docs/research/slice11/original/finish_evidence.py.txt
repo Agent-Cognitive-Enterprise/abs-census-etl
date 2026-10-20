@@ -1,0 +1,70 @@
+"""Additional bounded observations; uses the same persistent download ledger."""
+import csv
+from html.parser import HTMLParser
+import io
+import json
+from pathlib import Path
+import re
+from zipfile import ZipFile
+import inspect_sources as probe
+
+OUT = probe.OUT
+for profile, geo in [('IP', 'LGA'), ('WPP', 'SA2'), ('WPP', 'POA'), ('PEP', 'LGA')]:
+    if (OUT / 'other-profile.json').exists(): break
+    url = probe.BASE + f'2021_{profile}_{geo}_for_NSW_short-header.zip'
+    try:
+        remote = probe.Remote(url)
+        with ZipFile(io.BufferedReader(remote)) as archive:
+            names = archive.namelist()
+            item = {'url': url, 'evidence': 'HTTP range central directory only; no full ZIP hash',
+                    'archive_size': remote.size, 'members': names,
+                    'metadata': [n for n in names if 'Metadata_' in n],
+                    'csv_examples': [n for n in names if n.lower().endswith('.csv')][:3]}
+            probe.save_json(OUT / 'other-profile.json', item)
+            print('OTHER PROFILE',json.dumps(item),flush=True)
+    except Exception as exc: print(profile, geo, str(exc), flush=True)
+
+class Text(HTMLParser):
+    def __init__(self): super().__init__(); self.parts=[]
+    def handle_data(self, text): self.parts.append(text)
+
+references=[]
+for identifier in ['POA2000', 'POA0800', '101021007', 'LGA17200']:
+    url = 'https://www.abs.gov.au/census/find-census-data/quickstats/2016/' + identifier
+    status, _, data = probe.fetch(url)
+    item = {'url': url, 'status': status, 'utc': probe.now(), 'independent_source': 'ABS QuickStats HTML; not generated from CSV'}
+    (OUT / f'quickstats-{identifier}.html').write_bytes(data)
+    parser=Text(); parser.feed(data.decode('utf-8',errors='replace'))
+    text=re.sub(r'\s+', ' ', ' '.join(parser.parts))
+    pos=text.find('Area code')
+    summary=text[pos:] if pos>=0 else ''
+    match=re.search(r'\bPeople\s+([0-9,]+)\s+Male.*?\bMedian age\s+([0-9]+)\b',summary)
+    if status == 200 and match:
+        item.update(people=int(match[1].replace(',','')),median_age=int(match[2]),summary=summary[:900])
+    else: item['error']='Inspect saved HTML; independent values not parsed'
+    references.append(item)
+    print('REFERENCE',identifier,item,flush=True)
+probe.save_json(OUT / 'references.json',references)
+
+# Preserve primary definitions, with retrieval provenance in the same ledger.
+urls={
+ 'dictionary-geography': 'https://www.abs.gov.au/ausstats/abs%40.nsf/Lookup/2901.0Chapter23002016',
+ 'sa2-boundary': 'https://geo.abs.gov.au/arcgis/rest/services/ASGS2016/SA2/MapServer/1?f=pjson',
+ 'datapack-guide': 'https://www.abs.gov.au/census/guide-census-data/about-census-tools/datapacks',
+}
+for label,url in urls.items():
+    status,_,data=probe.fetch(url)
+    (OUT / (label+'.html' if label!='sa2-boundary' else label+'.json')).write_bytes(data)
+    print('PRIMARY DOC',label,status,len(data),flush=True)
+
+# Capture local POA evidence values directly, independent of the production reader.
+with ZipFile(OUT/'2016_GCP_POA_for_NSW_short-header.zip') as z:
+    values={}
+    for table in ['G01','G02']:
+        name=next(n for n in z.namelist() if n.endswith(f'2016Census_{table}_NSW_POA.csv'))
+        rows=csv.DictReader(io.TextIOWrapper(z.open(name),encoding='utf-8-sig'))
+        wanted={row['POA_CODE_2016']:row for row in rows if row['POA_CODE_2016'] in {'POA2000','POA2010'}}
+        values[table]={code:{key:row[key] for key in ['Tot_P_P' if table=='G01' else 'Median_age_persons']} for code,row in wanted.items()}
+    probe.save_json(OUT/'local-poa-reference-cells.json',values)
+    print('LOCAL CELLS',values,flush=True)
+print('BODY BYTES',probe.ledger['bytes_received'],'of',probe.CAP,flush=True)

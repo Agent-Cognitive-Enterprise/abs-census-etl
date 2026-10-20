@@ -21,7 +21,59 @@ SOURCE_FILES = CHECKS["SOURCE_FILES"]
 UV = shutil.which("uv")
 
 
+def research_audit_directory(root):
+    directory = root / "docs/research/slice11"
+    required = ("README.md", "evidence.py", "test_evidence.py", "matrix.py",
+                "supporting.py", "test_matrix.py", "original/inspect_sources.py.txt",
+                "original/finish_evidence.py.txt", "original/verify_evidence.py.txt",
+                "original/matrix.py.txt", "original/20261020-slice11-supporting.py.txt")
+    if all((directory / name).is_file() for name in required):
+        return directory
+    # Source archives positively identify themselves with generated PKG-INFO.
+    # A missing .git alone is insufficient: copied checkouts must fail too.
+    if (root / "PKG-INFO").is_file() and not (root / ".git").exists():
+        return None
+    raise RuntimeError(f"Missing checkout research audit tests: {directory}")
+
+
 class PackagingCheckTests(unittest.TestCase):
+    def test_checkout_research_audit(self):
+        # Research evidence stays out of release archives, but its stdlib audit
+        # tests must run during the ordinary checkout suite, including CI.
+        directory = research_audit_directory(Path(__file__).resolve().parents[1])
+        if directory is None:
+            self.skipTest("Checkout-only research audit is not shipped in the source archive")
+        result = subprocess.run(
+            [sys.executable, "-m", "unittest", "discover", "-s", str(directory),
+             "-p", "test_*.py", "-v"], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_missing_checkout_audit_fails_even_with_worktree_git_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(RuntimeError, "Missing checkout research"):
+                research_audit_directory(root)
+            (root / ".git").write_text("gitdir: /example/worktree")
+            (root / "PKG-INFO").write_text("Name: abs-census-etl")
+            with self.assertRaisesRegex(RuntimeError, "Missing checkout research"):
+                research_audit_directory(root)
+
+    def test_partial_checkout_audit_does_not_skip_matrix_tests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            research = root / "docs/research/slice11"
+            research.mkdir(parents=True)
+            for name in ("README.md", "evidence.py", "test_evidence.py"):
+                (research / name).write_text("older research file")
+            with self.assertRaisesRegex(RuntimeError, "Missing checkout research"):
+                research_audit_directory(root)
+
+    def test_archive_audit_skip_requires_positive_source_package_marker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "PKG-INFO").write_text("Name: abs-census-etl")
+            self.assertIsNone(research_audit_directory(root))
+
     def test_actual_source_has_all_required_build_inputs(self):
         # Missing newly added docs must fail offline, including in a clean clone.
         root = Path(__file__).resolve().parents[1]
