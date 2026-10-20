@@ -205,14 +205,14 @@ allow ACEs are judged; deny ACEs are conservatively not credited.
 publishing job. The reusable checks build one five-file bundle and pass it to
 native jobs on Ubuntu x64/ARM64, macOS ARM64/Intel and Windows x64. Installer
 smokes consume that bundle for the current version and build a synthetic next
-version to exercise updates/failures. This is workflow configuration, not a
-claim that GitHub-hosted jobs have already run.
+version to exercise updates/failures. The first [hosted run](https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/actions/runs/39361189657)
+passed on ce34be5; each release tag must pass its own run.
 
 From a source checkout with development Python and uv, prepare a local bundle:
 
 ```bash
-.venv/bin/python scripts/release.py build --tag v0.1.0.dev0
-.venv/bin/python scripts/release.py verify --tag v0.1.0.dev0
+.venv/bin/python scripts/release.py build --tag v0.1.0
+.venv/bin/python scripts/release.py verify --tag v0.1.0
 ```
 
 Use the actual `project.version` for a release. Output defaults to `dist/release`

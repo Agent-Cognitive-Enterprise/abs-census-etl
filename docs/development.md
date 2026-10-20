@@ -272,19 +272,28 @@ uv configuration-guard test is skipped when `uv` is not on PATH.
 
 ## Recorded native validation
 
-Maintainers refresh this dated section before each release; an older date describes
-history only, not the revision you downloaded.
+Maintainers refresh this dated section before each release; results apply to
+the linked commit, not automatically to every later source download.
 
-Historical checks recorded on **2026-10-20** included Linux x86-64, macOS ARM64
-and Windows 11 x64. They do not establish native support for a later revision.
-The Windows/macOS results predate the MIT-archive and Windows elevation-probe
-changes; no native rerun of those changes is recorded. Linux validation covered
-the licensed source archive. Linux ARM64 and Intel macOS have configured CI
-targets but no recorded native run. Hosted workflows and the project's published
-application-download route have not been validated in these records.
+On **2026-10-20**, [hosted CI for commit ce34be5][hosted-ci] passed the build,
+unit/mutation/packaging checks and native installer jobs on:
 
-The Windows tests used restricted tokens, not an independently provisioned
-standard-user profile. Proxy/TLS inspection, minimum OS releases and enterprise
-endpoint policies require separate verification. Reproduce the tests above for
-your revision; a wheel/platform table is not native evidence. Maintainer logs
-and source hashes are local artifacts, not included in application archives.
+- Ubuntu 24.04 x86-64 and ARM64;
+- macOS 15 ARM64 and Intel;
+- Windows Server 2025 x64, including PowerShell syntax, elevated refusal,
+  restricted-token unit tests and PowerShell 5.1/7 installer checks.
+
+That is hosted evidence after the MIT/archive and Windows elevation-probe
+changes. It supersedes the earlier statement that Linux ARM64 and Intel macOS
+were only configured targets. The 0.1.0 tag must still pass its own release
+workflow; ce34be5 predates that version change.
+
+Earlier local runs included Linux x86-64, macOS ARM64 and Windows 11 x64. Both
+hosted and local Windows testing used restricted tokens, not a separately
+provisioned standard-user profile. Minimum OS releases, proxy/TLS inspection
+and enterprise endpoint policies require separate verification. The real
+published application-download route is checked only after publication; local
+release-directory smokes do not prove it. A wheel/platform table alone is not
+native evidence. Actions uploads retain native log artifacts for 14 days.
+
+[hosted-ci]: https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/actions/runs/39361189657

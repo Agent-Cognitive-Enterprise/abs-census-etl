@@ -1,7 +1,9 @@
 # Python API, exports and data caveats
 
 For a first CLI export, see the [README](../README.md#first-export). The Python examples
-need the [source environment](../README.md#setup).
+need the app installed in your Python 3.14 environment, using the
+[direct module install](../README.md#install-as-a-python-module) or
+[source setup](../README.md#setup).
 
 ## Use from Python
 

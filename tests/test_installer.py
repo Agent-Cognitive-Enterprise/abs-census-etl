@@ -17,6 +17,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import tomllib
 import unittest
 import zipfile
 
@@ -131,7 +132,8 @@ class InstallerTests(unittest.TestCase):
         prefix = f"abs_census_etl-{version}"
         files = {name: (ROOT / name).read_bytes()
                  for name in ("abs_census_etl.py", "pyproject.toml", "uv.lock", "setup.cfg")}
-        old = 'version = "0.1.0.dev0"'
+        source_version = tomllib.loads(files["pyproject.toml"].decode())["project"]["version"]
+        old = f'version = "{source_version}"'
         files["pyproject.toml"] = files["pyproject.toml"].replace(
             old.encode(), f'version = "{project_version or version}"'.encode(), 1)
         with tarfile.open(path, "w:gz") as archive:

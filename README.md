@@ -144,6 +144,37 @@ select the matching `--geo` and `--state`. Use `--help` for all options. For Dar
 output; request only areas present in the selected pack. Empty or partly unmatched
 selections raise errors before any export is written.
 
+## Install as a Python module
+
+Use Python **3.14 from your own project's virtual environment**. Pip can
+install the published wheel directly from GitHub; no repository copy or Git
+installation is needed:
+
+```bash
+python -m pip install "https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/releases/download/v0.1.0/abs_census_etl-0.1.0-py3-none-any.whl"
+```
+
+For optional Parquet support:
+
+```bash
+python -m pip install "abs-census-etl[parquet] @ https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/releases/download/v0.1.0/abs_census_etl-0.1.0-py3-none-any.whl"
+```
+
+Here `python` must be that project's environment interpreter; substitute its
+full path if the environment is not activated. These commands install the app
+and its declared dependencies into that environment. Pip resolves dependency
+ranges; it does not apply the release's uv lock. For module updates, use the
+URL of the new release; the version above is deliberately pinned.
+
+```python
+from abs_census_etl import load_census
+
+df = load_census(geo="POA", state="NSW", table="G01", codes=["2000"])
+```
+
+The managed installer is for the standalone CLI. It keeps its own environment
+and does not add imports to your other Python projects.
+
 ## Setup
 
 For a released version, open the repository's **Releases** page and download
@@ -208,7 +239,8 @@ commands or uv for a given `.venv`, not both.
 
 ## Use from Python
 
-Use the source environment above when writing Python programs. Managed installation is
+Use your project environment after the direct module install, or the source
+environment above, when writing Python programs. Managed installation is
 intended for the CLI; it does not add an importable module to your system Python. Run
 your script with that source environment's Python: `.venv/bin/python your_script.py`
 (Unix) or `.venv\Scripts\python.exe your_script.py` (Windows).

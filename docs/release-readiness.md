@@ -5,12 +5,14 @@ archives. Refresh version, evidence and policy status before each release.
 
 This records implementation and validation status. It is not authorization to publish, a
 hosted-CI result, or a guarantee that every supported target works. The owner signed off
-slice 5 and requested the documentation handoff in slice 6.
+all six implementation slices and delegated preparation/publication of 0.1.0.
+This snapshot is prepared before that publication; its outcome belongs in the
+daily progress record.
 
 ## Distribution snapshot
 
 - GitHub Releases only; no PyPI publishing workflow.
-- Development version: `0.1.0.dev0`; the release tag must match project metadata.
+- Release candidate version: `0.1.0`; the release tag must match project metadata.
 - MIT license, with the same `LICENSE` in source and wheel archives.
 - CSV by default; Parquet is an explicit install and export option.
 - Fresh download of the same installer command handles installation and updates.
@@ -38,9 +40,11 @@ checks below.
 | Slice 5R2, MIT license and residual fixes | Linux 185 tests (2 platform skips), 17 release tests also under optimization, packaging, 17 mutations, licensed bundle build and real Linux installer smoke | No native Windows/macOS rerun after these changes; rewritten Windows elevation step remains unverified natively |
 | Configured GitHub Actions matrix | Ubuntu x64/ARM64, macOS ARM64/Intel and Windows x64 | Configuration only; no hosted run recorded |
 
-These are historical results, not claims about a later checkout. Slice 6's own checks
-are recorded in docs/progress/20261020.md at handoff. Linux ARM64 and Intel macOS have no
-native results in these records. Testing with a restricted Windows token is not testing
+These are historical results, not claims about a later checkout. Hosted CI
+[subsequently passed all five native targets](https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/actions/runs/39361189657)
+on ce34be5, superseding the earlier configured-only target and no-hosted-run
+limitations below; release 0.1.0 still needs its own validation. Slice 6's own checks
+are recorded in docs/progress/20261020.md at handoff. Linux ARM64 and Intel macOS now have hosted results in the linked CI run. Testing with a restricted Windows token is not testing
 an independently provisioned standard-user profile. Enterprise proxy/TLS/endpoint
 policies, minimum OS versions and all storage or power-loss conditions are not
 established by the recorded checks.
@@ -56,8 +60,8 @@ Build a fresh bundle and verify it from the project directory (use the actual pr
 version if it changes). Pick an absent output directory:
 
 ```bash
-.venv/bin/python scripts/release.py build --tag v0.1.0.dev0 --assets dist/candidate
-.venv/bin/python scripts/release.py verify --tag v0.1.0.dev0 --assets dist/candidate
+.venv/bin/python scripts/release.py build --tag v0.1.0 --assets dist/candidate
+.venv/bin/python scripts/release.py verify --tag v0.1.0 --assets dist/candidate
 .venv/bin/python tests/check_installer.py --release-dir dist/candidate
 ```
 
@@ -76,10 +80,9 @@ are source-archive inputs.
    project/lock versions and create a new canonical tag; never move a release tag.
    Before tagging, refresh this handoff and the dated **Recorded native
    validation** section of `development.md`, which ships in the source archive.
-2. Decide whether publishing requires a protected GitHub environment with human
-   reviewers. **This policy remains unresolved; the workflow currently requires
-   explicit manual dispatch but has no environment reviewer gate.** Configuring
-   required reviewers is a repository setting; a workflow file alone cannot do it.
+2. Use the existing explicit manual dispatch process for this delegated release.
+   No required-reviewer environment is configured. The broader future policy
+   remains an owner decision; no repository setting is changed here.
 3. Review dependency/build-tool changes and upload ages. The owner chose current
    pins and documented review, without an enforced waiting period.
 4. Confirm repository Actions access, runner availability and minutes. Run the
