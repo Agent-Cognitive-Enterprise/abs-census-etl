@@ -3,6 +3,7 @@ include README.md CHANGELOG.md uv.lock setup.cfg
 prune tests
 include tests/test_abs_census_etl.py tests/test_packaging_checks.py
 include tests/test_data_features.py tests/check_abs_data.py
+include tests/test_year_coverage.py
 include tests/check_mutations.py tests/check_packaging.py
 
 # User and maintainer reference documentation linked from the packaged README.

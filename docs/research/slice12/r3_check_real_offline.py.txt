@@ -1,0 +1,85 @@
+"""Retained slice-12 genuine-pack checks, offline using existing evidence only."""
+from pathlib import Path
+from hashlib import file_digest, sha256
+import csv
+import io
+import json
+import subprocess
+import sys
+import tempfile
+from zipfile import ZipFile
+sys.path.insert(0,str(Path.cwd()))
+import abs_census_etl as etl
+
+root=Path('docs/evidence/20261020-slice12-r3')
+source=Path('docs/evidence/20261020-slice11/2016_GCP_POA_for_NSW_short-header.zip')
+with source.open('rb') as f: source_hash=file_digest(f,'sha256').hexdigest()
+if source_hash!='b25e824ccd63ed03d07d5e40d486e8a4530f4e3147bccfc07f336cd24a189dba':
+ raise RuntimeError('2016 evidence source hash mismatch')
+inventory=etl.list_census_tables(year=2016,source_zip=source)
+variables=etl.describe_census(year=2016,source_zip=source)
+assert len(inventory)==59 and len(variables)==15535
+with ZipFile(source) as archive:
+ count=0
+ for table in inventory['table']:
+  for member in etl.find_members(archive,table,'POA','NSW',year=2016):
+   with archive.open(member) as stream:
+    fields=next(csv.reader(io.TextIOWrapper(stream,encoding='utf-8-sig')))
+   part=Path(member).name.split('_')[1]
+   described=set(variables.loc[variables['datapack_table'].eq(part),'variable'])
+   assert fields[0]=='POA_CODE_2016' and set(fields[1:])==described,(table,part)
+   count+=1
+ assert count==110
+actual=etl.load_census_tables(year=2016,source_zip=source,tables=inventory['table'].tolist(),
+                               codes=['2000','2010'])
+assert len(actual)==59
+assert actual['G01']['Tot_P_P'].tolist()==[27411,27734]
+assert actual['G02']['Median_age_persons'].tolist()==[30,34]
+for frame in actual.values():
+ assert frame['POA_CODE_2016'].tolist()==['POA2000','POA2010']
+# Source-fidelity comparison for both genuine G04 parts.
+with ZipFile(source) as archive:
+ for member in etl.find_members(archive,'G04','POA','NSW',year=2016):
+  rows=csv.DictReader(io.TextIOWrapper(archive.open(member),encoding='utf-8-sig'))
+  selected=[row for row in rows if row['POA_CODE_2016']=='POA2000']
+  assert len(selected)==1
+  result=actual['G04'].iloc[0]
+  for name,value in selected[0].items():
+   if name!='POA_CODE_2016':
+    assert (etl.pd.isna(result[name]) if value.strip().lower() in etl.MISSING else result[name]==float(value))
+cli=subprocess.run([sys.executable,'abs_census_etl.py','--geo','POA','--year','2016',
+ '--zip',str(source),'--describe','--search','median_age'],capture_output=True,text=True,timeout=60)
+assert cli.returncode==0 and 'Median_age_persons' in cli.stdout,cli.stderr
+(root/'genuine-2016-cli.txt').write_text(cli.stdout)
+print('PASS genuine 2016: 59 tables, 15535 variables, 110 header matches, both NSW codes, G04 fidelity',flush=True)
+# All ten genuine 2021 NSW geographies: unchanged defaults, discovery, joining,
+# CSV exports and manifests. Sources are retained pre-existing complete packs.
+old=Path('docs/evidence/20261020-slices7-10')
+results=[]
+with tempfile.TemporaryDirectory(prefix='abs-slice12-real-') as directory:
+ for geo in sorted(etl.VALID_GEOS):
+  path=old/f'2021_GCP_{geo}_for_NSW_short-header.zip'
+  assert path.is_file(),path
+  with ZipFile(path) as archive:
+   member=etl.find_members(archive,'G01',geo,'NSW')[0]
+   with archive.open(member) as stream:
+    code=next(csv.DictReader(io.TextIOWrapper(stream,encoding='utf-8-sig')))[f'{geo}_CODE_2021']
+  default=etl.load_census(geo=geo,source_zip=path,table='G04',codes=[code])
+  explicit=etl.load_census(geo=geo,source_zip=path,table='G04',codes=[code],year=2021)
+  etl.pd.testing.assert_frame_equal(default,explicit)
+  tables=etl.list_census_tables(geo=geo,source_zip=path)
+  desc=etl.describe_census(geo=geo,source_zip=path)
+  assert len(tables)==62 and len(desc)==16984,(geo,len(tables),len(desc))
+  out=Path(directory)/geo
+  files=etl.export_census(geo=geo,source_zip=path,out=out,tables=['G01'],codes=[code])
+  manifest=json.loads((out/f'2021_GCP_{geo}_NSW_manifest.json').read_text())
+  assert manifest['census_year']==2021 and manifest['asgs_edition']==3
+  assert etl.pd.read_csv(files['G01'],dtype='string').iloc[0,0]==code
+  print('PASS genuine 2021',geo,'default/explicit equality, metadata, G04, export',flush=True)
+  results.append({'geography':geo,'source':str(path),'tables':len(tables),'variables':len(desc),'code':code})
+report={'network_used':False,'2016_source_sha256':source_hash,'2016_tables_loaded':len(actual),
+        '2016_metadata_variables':len(variables),'2016_metadata_header_matches':count,
+        '2016_codes':['POA2000','POA2010'],'2016_people':[27411,27734],
+        '2016_median_ages':[30,34],'2021_geographies':results,
+        'runtime_sha256':sha256(Path('abs_census_etl.py').read_bytes()).hexdigest()}
+(root/'genuine-data-report.json').write_text(json.dumps(report,indent=2)+'\n')

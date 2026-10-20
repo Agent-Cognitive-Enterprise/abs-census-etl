@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+- Add explicit integer `year` selection (default 2021) and CLI `--year` for
+  2016 POA loading, table listing and variable discovery across all state and
+  national selections. Preserve the source vintage in code-column names; 2016
+  exports and other 2016 geographies are not enabled in this increment.
+- Refuse wrong-year, mixed-year and non-GCP source identities with explicit
+  diagnostics. Invalid explicit source identity leaves fresh export folders
+  absent and existing empty folders unchanged, without creating a lock file.
+  Validate download identity before publishing a cache entry; invalid existing
+  cache entries name the archive and explain how to move it aside.
+- Geography and state API inputs now accept surrounding whitespace, including
+  for 2021 exports. Direct `find_members` and `combine_table` calls now require
+  a recognizably single-year GCP archive, rejecting mixed/unknown identities
+  that earlier versions could filter. Existing 2021 defaults and export/manifest
+  names remain unchanged.
+- Explicit-ZIP exports check recovery journals, targets, permissions and existing
+  manifests before opening the source. A folder with a lock file is locked first, so
+  a running export is reported busy without its staging state being inspected; a
+  folder without one is checked unlocked, then again under the new lock. Orphan
+  staging warnings also appear on format-conflict failure, without duplicates across
+  the two checks. Payload reads and downloads remain protected by the output lock.
+- Cache identity errors name the requested cache path once and explain recovery;
+  rejected downloads, including corrupt or non-ZIP responses, omit temporary paths
+  and identify the source URL to report if retrying the download fails again.
+
 ## 0.2.0 — 2026-10-20
 
 ### Breaking changes

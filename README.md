@@ -7,8 +7,11 @@ Geography codes stay strings,
 preserving leading zeros such as Darwin `0800`.
 
 Version **0.2.0** adds broader geography support, searchable ABS metadata,
-strict numeric validation and source ZIP hashes. Census year support remains
-2021 only. See [the changelog](CHANGELOG.md) for changes from 0.1.0.
+strict numeric validation and source ZIP hashes. Published 0.2.0 installers and
+wheels support Census 2021. This unreleased source adds **2016 POA loading and
+metadata discovery** with explicit `year=2016` / `--year 2016`; it does not yet
+export 2016 data or support other 2016 geographies. Use [source setup](#setup)
+for these additions. See [the changelog](CHANGELOG.md) for details.
 
 ## Use and responsibility
 

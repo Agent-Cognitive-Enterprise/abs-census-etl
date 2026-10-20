@@ -130,3 +130,10 @@ archive CRC check or demographic fidelity proof for every table. Full ZIP hashes
 are available only for the original complete POA NSW pack. No 2016 application
 support is added by these tools. Raw evidence remains local/ignored; no hosted
 execution is claimed before these sources are committed and pushed.
+
+
+## Slice 12 reader regressions
+
+The historical and repair audit snapshots now live beside their own
+[README in docs/research/slice12](../slice12/README.md). Their bytes are unchanged
+by the move. Slice 11 acquisition/audit commands above remain unchanged.

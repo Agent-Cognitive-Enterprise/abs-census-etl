@@ -7,6 +7,73 @@ need the app installed in your Python 3.14 environment, using the
 
 This guide covers version 0.2.0, including searchable metadata and ten supported
 2021 geographies. Users of 0.1.0 should update before using the new APIs.
+The unreleased source also supports explicit 2016 POA loading/discovery as below;
+that functionality is not in the published 0.2.0 wheel or managed installation.
+
+## Selecting a Census year (unreleased source)
+
+`year` is a keyword on loading, table listing and variable description. It must
+be an integer 2016 or 2021; floats, booleans and strings are rejected. The CLI uses
+`--year 2016` or `--year 2021`. The default stays **2021** for compatibility.
+
+| Year | Current geography support | Operations |
+| --- | --- | --- |
+| 2021 (default) | POA, SA1–SA4, LGA, SED, CED, STE, SAL | Load, discover, CSV/Parquet export |
+| 2016 (explicit) | POA in all states/territories and AUS | Load and discover only |
+
+For 2016 POA, use the same Python API with an explicit year:
+
+```python
+from abs_census_etl import load_census, list_census_tables, describe_census
+
+source = "2016_GCP_POA_for_NSW_short-header.zip"  # your downloaded official ZIP
+people = load_census(year=2016, geo="POA", state="NSW", source_zip=source,
+                     codes=["2000"], keep=["Tot_P_P"])
+tables = list_census_tables(year=2016, geo="POA", state="NSW", source_zip=source)
+variables = describe_census(year=2016, geo="POA", state="NSW", source_zip=source,
+                            search="median_age")
+```
+
+CLI discovery from a Unix source installation (on Windows use the corresponding
+`.venv\Scripts\abs-census-etl.exe` launcher):
+
+```sh
+.venv/bin/abs-census-etl --geo POA --state NSW --year 2016 \
+  --zip 2016_GCP_POA_for_NSW_short-header.zip --describe --search median_age
+```
+
+Omit `source_zip` / `--zip` to download the selected year's pack into its own
+cache filename. Returned wide and long data retain `POA_CODE_2016` or
+`POA_CODE_2021`, including source prefixes or bare leading zeros. Code filters,
+column selection, split-table integrity and strict numeric parsing apply to both.
+`--list-columns` also supports 2016. `export_census(year=2016)` and ordinary CLI
+2016 exports currently fail before source access or output-folder creation;
+2016 exports are a later increment. Other 2016 geographies, including SSC, fail
+early too. The public `GEOGRAPHIES`, `VALID_GEOS` and `MEMBER_RE` constants retain
+their original 2021 meanings; use the APIs for requested-year validation.
+
+Wrong-year archives report the year found and suggest explicit year selection
+only when that year supports the requested geography and profile. No automatic
+year inference is performed. Mixed-year archives and non-GCP
+profiles are refused, even if some requested GCP table members could be selected.
+An explicit incompatible ZIP is refused before creating an output folder or
+lock, including a new lock in an existing empty folder. Known destination
+problems (recovery journals, formats, symlink/file types, permissions and existing
+manifest validity) are checked before opening the source: under the existing
+lock when the folder has a lock file, otherwise without writing and again under
+the new lock. Any unlocked manifest read is discarded; only the locked read
+supplies retained export entries. This does not change the names and
+manifest fields of 2021 exports. Download identity and ZIP integrity are checked
+before a new cache entry is published; a rejected download names the cache path
+and source URL, never a temporary file. An incompatible existing cache
+names its path and asks you to move it aside, then retry the requested download.
+
+2016 data uses its own geography. An identical-looking code or variable name
+across years is not proof that areas or statistical definitions are comparable.
+The national 2016 POA pack uses AUS in CSV names; 2021 uses AUST. National
+no-usual-address/migratory codes POA9494/POA9797 are in the 2016 OT pack; asking
+for them from a NSW pack raises unmatched-code errors. This increment does not
+support Time Series Profiles, historical joins or SSC/SAL conversions.
 
 ## Use from Python
 
@@ -216,7 +283,11 @@ The Python API uses `cache_dir` instead and can reuse a shared cache or an
 explicit `source_zip`. See [CHANGELOG.md](../CHANGELOG.md).
 
 Before source access, export validates code/column selections, optional Parquet engine
-availability, output path types, format collisions and symlinked output files.
+availability, output path types, format collisions and symlinked output files. With an
+explicit ZIP, destination checks also precede opening it. A folder that has a lock file is
+locked first and checked once. A folder without one is checked without writing, then again
+under the new lock, so changes after the first check may be refused after ZIP directory/
+identity validation. Payload reads and downloads always follow the locked checks.
 Scalar/empty `keep` values are invalid; use `keep=None` for all measures. Unknown column
 names and unmatched geographic codes require reading the data. Pyarrow is the
 recommended and integration-tested Parquet engine. Pandas may use fastparquet when
@@ -270,15 +341,22 @@ Nothing is removed automatically.
 ## Concurrent exports
 
 Cooperating exports acquire an exclusive operating-system lock on the output
-folder's persistent `.abs-census-etl.lock` file. It covers recovery checks,
-format/destination checks, reading the previous manifest, loading the source,
-staging, publication and cleanup. A competing process fails with a busy message
-before source access; wait for the first process to finish and retry. The OS
+folder's persistent `.abs-census-etl.lock` file. It covers the final recovery/
+destination checks, the authoritative previous-manifest read, loading the source,
+staging, publication and cleanup. When the folder already has its lock file, a busy
+refusal precedes source access, including with `--zip` / `source_zip`, and a running
+export's staging folders and recovery journal are only inspected under the lock. Only
+a folder without a lock file gets unlocked destination checks and quick explicit-ZIP
+directory/identity validation before the lock is created, so an invalid ZIP leaves no
+new lock. If another export starts meanwhile, its busy message follows that ZIP access.
+No ZIP member payload reads or downloads happen before acquiring the lock. Wait for
+the other export to finish, then retry. The OS
 releases the lock on exceptions or process termination. The empty lock file
 stays in place deliberately; **do not delete it**, since replacing its inode can
 allow two processes to lock different files. A missing/non-file explicit ZIP path
 or invalid ZIP directory is rejected before creating a fresh output folder.
-Existing-folder destination checks retain priority over opening the source.
+Existing-folder destination checks retain priority over opening an explicit source;
+without a lock file they repeat under the new lock to catch subsequent changes.
 Errors that require reading member payloads (damaged contents, wrong state or
 unmatched codes) can leave
 a new folder containing just this coordination file; no data was published.
@@ -322,8 +400,11 @@ repair is needed, and `never_published` means that target was untouched. Consume
 backups are removed from the available map; backups for untouched files do not need
 restoring.
 
-Any retained journal blocks another export before source access, including a malformed
-journal or one left after completed publication/rollback cleanup. The check covers the
+Any retained journal blocks another export, including a malformed journal or one left
+after completed publication/rollback cleanup. Existing journals are refused before
+opening an explicit ZIP. In a folder without a lock file, a second check under the new
+lock catches journals that appeared since that preflight, before any payload is read.
+The check covers the
 whole output folder, so one journal blocks exports for every geography and state written
 there. The refusal names each journal's `state` (`unreadable` if it cannot be parsed).
 This prevents a later export from making the saved backups stale. Verify the published
@@ -336,7 +417,9 @@ delete the journal, for example because another program held it open. Cleanup de
 the journal before the other staging files, so an interrupted cleanup leaves at most a
 folder without a journal. When cleanup leaves anything behind, a successful export emits
 a `RuntimeWarning` and a failed export adds the same text as a note to its error; the
-CLI prints these as `WARNING:` lines or after the `ERROR:` line.
+CLI prints these as `WARNING:` lines or after the `ERROR:` line. Orphan staging
+folders also warn during destination preflight, including when a format conflict
+then refuses the export. Repeated checks do not repeat the same orphan warning.
 
 If journal updates fail, the error warns that the journal may be stale and keeps the
 recovery directory. If SIGKILL or power loss interrupts publication, the last

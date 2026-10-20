@@ -14,6 +14,11 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+_DESTINATION_ARGUMENTS = (
+    '            out_dir=out_dir, existing_parent=existing_parent, geo=geo, state=state,\n'
+    '            table_ids=table_ids, long=long, file_format=file_format,\n'
+    '            warned_orphans=warned_orphans)'
+)
 MUTATIONS = [
     ("allow numeric CSV inference", 'dtype="string", keep_default_na=False',
      'dtype=None, keep_default_na=False',
@@ -33,12 +38,12 @@ MUTATIONS = [
     ("allow mixed-state inference", 'if len(candidate_states) > 1:',
      'if False:',
      "test_direct_full_table_ambiguity_requires_explicit_state", "ValueError not raised"),
-    ("skip format collision preflight", 'if conflicts:\n            raise FileExistsError',
-     'if False:\n            raise FileExistsError',
+    ("skip format collision preflight", 'if conflicts:\n        raise FileExistsError',
+     'if False:\n        raise FileExistsError',
      "test_format_conflict_is_reported_before_any_source_access", "AssertionError: source accessed"),
     # Its target test is skipped as root, so run mutations as a regular user.
-    ("skip read-only output preflight", 'if read_only:\n            raise PermissionError',
-     'if False:\n            raise PermissionError',
+    ("skip read-only output preflight", 'if read_only:\n        raise PermissionError',
+     'if False:\n        raise PermissionError',
      "test_read_only_manifest_is_refused_before_source_access", "AssertionError: source accessed"),
     ("treat one-sided missing values as equal", 'equal.fillna(False).all()',
      'equal.fillna(True).all()',
@@ -76,8 +81,8 @@ MUTATIONS = [
     ("omit retained source hash", 'retained.setdefault("source_sha256", None)',
      'retained["source_sha256"] = None',
      "test_manifest_hashes_identify_each_export_not_latest_for_all", "AssertionError: None !="),
-    ("merge split metadata parts incorrectly", 'parts.update(MEMBER_RE.fullmatch(Path(p).name).group(1).upper() for p in paths)',
-     'parts.update(MEMBER_RE.fullmatch(Path(p).name).group(1).upper() for p in paths[:1])',
+    ("merge split metadata parts incorrectly", 'parts.update(pattern.fullmatch(Path(p).name).group(1).upper() for p in paths)',
+     'parts.update(pattern.fullmatch(Path(p).name).group(1).upper() for p in paths[:1])',
      "test_discovery_shared_and_inline_rich_strings_without_loading_data", "AssertionError: Lists differ"),
     ("drop lettered profile metadata", '"sequential": r["Sequential"]} for r in variables]',
      '"sequential": r["Sequential"]} for r in variables if re.fullmatch(r"G\\d{2}", r["Profile table"])]',
@@ -93,9 +98,56 @@ MUTATIONS = [
     ("skip metadata ZIP read diagnostics", 'with _zip_read_errors(archive):',
      'with warnings.catch_warnings():',
      "test_compressed_metadata_corruption_names_archive_for_discovery", "zlib.error"),
+    ("ignore selected year in core reader", 'df = _combine_validated_table(z, table, geo, state, year=year)',
+     'df = _combine_validated_table(z, table, geo, state, year=2021)',
+     "test_explicit_year_changes_source_header_values_and_inventory", "Table G01 not found"),
+    ("skip explicit-source year/profile preflight", '        _validate_source_identity(Path(source_zip), year, geo=geo)',
+     '        pass  # mutation: source identity deferred past mkdir',
+     "test_wrong_year_profile_and_mixed_sources_do_not_create_export_folder", "AssertionError: True is not false"),
     ("skip member header checks", '                with archive.open(info):\n                    pass',
      '                pass',
      "test_encrypted_or_unsupported_members_are_refused_before_reading", "AssertionError: data read"),
+    ("skip cached identity validation", '                _check_archive(archive, year, geo=geo, suggest_year=False)',
+     '                pass  # mutation: trust cached identity',
+     "test_cached_identity_is_checked_at_resolution_with_recovery_and_path", "ValueError not raised"),
+    ("omit source path from identity error", 'raise ValueError(f"{source}: {error}") from error',
+     'raise ValueError(str(error)) from error',
+     "test_explicit_resolution_identity_error_includes_source_path", "source path missing"),
+    ("leak vintage code column in CLI", 'code = _code_column(args.geo, args.year)',
+     'code = _code_column(args.geo, 2021)',
+     "test_cli_discovers_2016_but_does_not_export_it", "code column leaked"),
+    ("use wrong 2016 national token", 'frozenset({"AUS"})', 'frozenset({"AUST"})',
+     "test_all_states_and_national_tokens_for_both_years", "Invalid national member token"),
+    ("accept nonintegral year types", 'not isinstance(year, Integral) or year not in _VINTAGES',
+     'year not in _VINTAGES',
+     "test_year_and_geography_validation_precedes_every_source_access", "AssertionError: source accessed"),
+    ("skip download identity before cache publication", '        if validate is not None:\n            validate(tmp)',
+     '        pass  # mutation: publish unidentified download',
+     "test_wrong_download_identity_never_enters_cache_and_retry_succeeds", "ValueError not raised"),
+    ("skip destination preflight before explicit ZIP",
+     '        _preflight_destination(\n' + _DESTINATION_ARGUMENTS,
+     '        pass  # mutation: skip early destination inspection',
+     "test_destination_refusals_precede_every_explicit_zip_access",
+     "source or lock accessed before refusal"),
+    ("skip locked destination reread",
+     '        manifest_path, targets, retained_tables = _preflight_destination(\n'
+     + _DESTINATION_ARGUMENTS,
+     '        pass  # mutation: trust early destination inspection',
+     "test_destination_journal_is_rechecked_under_lock_after_explicit_validation",
+     "AssertionError: source resolved"),
+    ("duplicate orphan warnings",
+     '    orphan_folders = [path for path in orphan_folders if path not in warned_orphans]',
+     '    pass  # mutation: warn twice',
+     "test_orphan_warning_is_emitted_once_across_destination_preflights",
+     "AssertionError: 2 != 1"),
+    ("inspect before an existing lock",
+     '                         and not os.path.lexists(out_dir / _LOCK_NAME))',
+     '                         and True)  # mutation: ignore existing lock file',
+     "test_running_export_is_busy_before_its_staging_or_the_zip_is_inspected",
+     "source accessed while busy"),
+    ("name deleted download temporary", '        except BadZipFile as error:\n            # The temporary',
+     '        except NotImplementedError as error:\n            # The temporary',
+     "test_corrupt_download_names_cache_path_not_deleted_temporary_file", "temporary path named"),
 ]
 
 
@@ -115,6 +167,7 @@ def main() -> int:
         (scratch / "tests").mkdir()
         shutil.copy2(ROOT / "tests/test_abs_census_etl.py", scratch / "tests/test_abs_census_etl.py")
         shutil.copy2(ROOT / "tests/test_data_features.py", scratch / "tests/test_data_features.py")
+        shutil.copy2(ROOT / "tests/test_year_coverage.py", scratch / "tests/test_year_coverage.py")
         for name, before, after, target, reason in MUTATIONS:
             if name == "skip existing data mode copy" and os.name != "posix":
                 print(f"SKIPPED: {name} (POSIX permission modes)")

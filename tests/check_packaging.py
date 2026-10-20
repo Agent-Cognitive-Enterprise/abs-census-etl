@@ -27,7 +27,7 @@ SOURCE_FILES = {
     "docs/release-assets.md",
     "tests/check_mutations.py", "tests/test_abs_census_etl.py",
     "tests/test_packaging_checks.py", "tests/test_data_features.py",
-    "tests/check_abs_data.py",
+    "tests/check_abs_data.py", "tests/test_year_coverage.py",
 }
 # Placeholders for files a clone or working checkout has but releases must not
 # ship. Writing them copies no checkout data, and the exact sdist list then
@@ -254,6 +254,19 @@ assert importlib.util.find_spec('fastparquet') is None
                        "--codes", "bad"],
                       cwd=outside, env=env, expected=1)
         require("ERROR:" in failure and "Traceback" not in failure, failure)
+        columns = run([*command, "--geo", "POA", "--state", "NT", "--year", "2016",
+                       "--zip", "nt2016.zip", "--list-columns"], cwd=outside, env=env)
+        require("Tot_P_P" in columns and "POA_CODE_2016" not in columns, columns)
+        wrong_year = run([*command, "--geo", "POA", "--state", "NT", "--zip",
+                          "nt2016.zip", "--list-columns"], cwd=outside, env=env, expected=1)
+        require("Wrong Census year" in wrong_year and "--year 2016" in wrong_year
+                and "Traceback" not in wrong_year, wrong_year)
+    read_2016 = ("import abs_census_etl as m; "
+                 "df = m.load_census(year=2016, state='NT', source_zip='nt2016.zip', "
+                 "codes=[800]); "
+                 "assert df['POA_CODE_2016'].tolist() == ['0800']; "
+                 "assert df['Tot_P_P'].tolist() == [90]")
+    run([str(python), "-I", "-c", read_2016], cwd=outside, env=env)
 
     output = outside / label
     run([str(launcher), "--geo", "POA", "--state", "NT", "--zip", "nt.zip",
@@ -283,7 +296,7 @@ assert importlib.util.find_spec('fastparquet') is None
             "Setup for pip",
             "Platforms and development for uv", "--format csv",
             "file_format='csv'")) and "Traceback" not in failure, failure)
-    print(f"PASS: {label} (imports, launchers, diagnostics, CSV"
+    print(f"PASS: {label} (imports, launchers, 2016 POA reads, diagnostics, CSV"
           f"{' and Parquet' if parquet else ' without Parquet engine'})", flush=True)
 
 
@@ -340,6 +353,9 @@ def main() -> int:
         with ZipFile(outside / "nt.zip", "w") as archive:
             archive.writestr("2021 Census GCP Postal Areas for NT/2021Census_G01_NT_POA.csv",
                              "POA_CODE_2021,Tot_P_P\n0800,100\n0810,400\n")
+        with ZipFile(outside / "nt2016.zip", "w") as archive:
+            archive.writestr("2016 Census GCP Postal Areas for NT/2016Census_G01_NT_POA.csv",
+                             "POA_CODE_2016,Tot_P_P\n0800,90\n0810,390\n")
         for parquet in (False, True):
             label = "parquet-extra" if parquet else "default"
             environment = scratch / f"env-{label}"

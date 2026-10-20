@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""Read and transform ABS 2021 Census GCP DataPacks from Python or the CLI.
+"""Read and transform ABS Census GCP DataPacks from Python or the CLI.
 
+Default year is 2021. Explicit year=2016 supports POA loading and discovery;
+2016 exports and other 2016 geographies are not enabled yet.
 Supported 2021 General Community Profile (GCP) geographies are POA, SA1–SA4,
 LGA, SED, CED, STE and SAL. Postal Areas approximate postcodes. Tables with
 lettered parts, such as G04A/G04B, are automatically joined on the geographic
@@ -55,12 +57,13 @@ import sys
 import tempfile
 import warnings
 import zlib
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from importlib.util import find_spec
 from numbers import Integral, Real
 from pathlib import Path, PurePosixPath, PureWindowsPath
+from types import MappingProxyType
 from typing import BinaryIO
 from xml.etree import ElementTree as ET
 from zipfile import BadZipFile, ZipFile
@@ -80,6 +83,92 @@ GEOGRAPHIES = {
 VALID_GEOS = frozenset(GEOGRAPHIES)
 MEMBER_RE = re.compile(r"2021Census_(G\d{2}[A-Z]?)_([A-Z]+)_([A-Z0-9]+)\.csv", re.I)
 VALID_STATES = {"AUS", "NSW", "VIC", "QLD", "SA", "WA", "TAS", "NT", "ACT", "OT"}
+
+# The public GEOGRAPHIES/VALID_GEOS/MEMBER_RE above retain their 2021 meanings.
+_VINTAGES = MappingProxyType({
+    2021: MappingProxyType({"profile": "GCP", "columns": MappingProxyType(
+        {geo: f"{geo}_CODE_2021" for geo in GEOGRAPHIES}),
+        "national_tokens": frozenset({"AUS", "AUST"}), "member_re": MEMBER_RE}),
+    2016: MappingProxyType({"profile": "GCP", "columns": MappingProxyType(
+        {"POA": "POA_CODE_2016"}), "national_tokens": frozenset({"AUS"}),
+        "member_re": re.compile(
+            r"2016Census_(G\d{2}[A-Z]?)_([A-Z]+)_([A-Z0-9]+)\.csv", re.I)}),
+})
+_ARCHIVE_MEMBER_RE = re.compile(
+    r"(\d{4})Census_([A-Z]\d{2}[A-Z]?)_([A-Z]+)_([A-Z0-9]+)\.csv", re.I)
+_METADATA_ID_RE = re.compile(
+    r"Metadata_(\d{4})_([A-Z0-9]+)_DataPack(?:_[A-Za-z0-9]+)*\.xlsx", re.I)
+
+
+def _vintage(year: int) -> Mapping:
+    if not isinstance(year, Integral) or year not in _VINTAGES:
+        raise ValueError(f"Unsupported Census year {year!r}; use integer 2016 or 2021")
+    return _VINTAGES[year]
+
+
+def _code_column(geo: str, year: int) -> str:
+    return _vintage(year)["columns"][geo]
+
+
+def _member_state(token: str, year: int) -> str:
+    if token in {"AUS", "AUST"}:
+        if token not in _vintage(year)["national_tokens"]:
+            raise ValueError(f"Invalid national member token {token!r} for {year}; "
+                             f"expected {sorted(_vintage(year)['national_tokens'])}")
+        return "AUS"
+    return token
+
+
+def _check_archive(archive: ZipFile, year: int, *, geo: str | None = None,
+                   suggest_year: bool = True) -> None:
+    """Check source identity from names only, before reading any table payload."""
+    requested = _vintage(year)["profile"]
+    years, profiles = set(), set()
+    members_found = False
+    families = {"G": "GCP", "T": "TSP", "I": "IP", "W": "WPP", "P": "PEP"}
+    for name in archive.namelist():
+        member = _ARCHIVE_MEMBER_RE.fullmatch(Path(name).name)
+        metadata = _METADATA_ID_RE.fullmatch(Path(name).name)
+        if member:
+            members_found = True
+            years.add(int(member[1]))
+            family = member[2][0].upper()
+            profiles.add(families.get(family, f"unidentified table family {family}"))
+        if metadata:
+            years.add(int(metadata[1]))
+            profiles.add(metadata[2].upper())
+    if not members_found:
+        raise ValueError(f"Unsupported/unidentified DataPack: requested {year} {requested}; "
+                         f"found years {sorted(years)}, profiles {sorted(profiles)} and no "
+                         "recognized Census table members. Supply a supported GCP archive.")
+    if len(years) > 1:
+        raise ValueError(f"Mixed Census years in archive: {sorted(years)}; requested {year} "
+                         f"{requested}. Use a single-year GCP archive.")
+    if years != {year}:
+        found = next(iter(years))
+        hint = f"Supply a {year} {requested} pack"
+        if found in _VINTAGES and profiles == {requested}:
+            if geo is not None and geo not in _vintage(found)["columns"]:
+                hint += (f" for {geo}; {found} supports only "
+                         f"{sorted(_vintage(found)['columns'])} in this version")
+            elif suggest_year:
+                hint = f"Select --year {found} (Python: year={found}) for that pack"
+        raise ValueError(f"Wrong Census year: requested {year} {requested}; found {found} "
+                         f"profiles {sorted(profiles)}. {hint}.")
+    if profiles != {requested}:
+        raise ValueError(f"Wrong DataPack profile: requested {year} {requested}; found "
+                         f"{year} profiles {sorted(profiles)}. Supply a {year} GCP pack; "
+                         "other profiles are not supported.")
+
+
+def _validate_source_identity(source: Path, year: int, *, geo: str | None = None,
+                              suggest_year: bool = True) -> None:
+    with _zip_read_errors(source), ZipFile(source) as archive:
+        try:
+            _check_archive(archive, year, geo=geo, suggest_year=suggest_year)
+        except ValueError as error:
+            raise ValueError(f"{source}: {error}") from error
+
 PARQUET_ENGINE_HELP = (
     "Parquet export needs pyarrow or fastparquet. Install the project's parquet "
     "extra as shown in README.md (Install or update for managed installs, "
@@ -92,6 +181,8 @@ def args_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="abs-census-etl", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--geo", choices=sorted(VALID_GEOS), required=True)
+    parser.add_argument("--year", type=int, choices=sorted(_VINTAGES), default=2021,
+                        help="Census year (default 2021); 2016 POA loading/discovery only")
     parser.add_argument("--state", default="NSW", choices=sorted(VALID_STATES))
     parser.add_argument("--tables", nargs="+",
                         help="Table IDs, e.g. G01 G04; defaults to G01, or all for --describe")
@@ -114,10 +205,12 @@ def args_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _validate_geography(geo: str, state: str) -> tuple[str, str]:
-    geo, state = geo.upper(), state.upper()
-    if geo not in VALID_GEOS:
-        raise ValueError(f"Unsupported geography {geo!r}. Choose from {sorted(VALID_GEOS)}")
+def _validate_geography(geo: str, state: str, *, year: int = 2021) -> tuple[str, str]:
+    vintage = _vintage(year)
+    geo, state = geo.strip().upper(), state.strip().upper()
+    if geo not in vintage["columns"]:
+        raise ValueError(f"Unsupported geography {geo!r} for {year} GCP. "
+                         f"Choose from {sorted(vintage['columns'])}")
     if state not in VALID_STATES:
         raise ValueError(f"Unsupported state {state!r}. Choose from {sorted(VALID_STATES)}")
     return geo, state
@@ -135,16 +228,19 @@ def _normalize_tables(tables: Iterable[str]) -> list[str]:
     return normalized
 
 
-def datapack_url(geo: str, state: str) -> str:
-    geo, state = _validate_geography(geo, state)
-    return f"{BASE_URL}/2021_GCP_{geo}_for_{state}_short-header.zip"
+def datapack_url(geo: str, state: str, *, year: int = 2021) -> str:
+    geo, state = _validate_geography(geo, state, year=year)
+    return f"{BASE_URL}/{year}_GCP_{geo}_for_{state}_short-header.zip"
 
 
-def download_if_needed(url: str, dest: Path) -> None:
+def download_if_needed(url: str, dest: Path, *,
+                       validate: Callable[[Path], None] | None = None) -> None:
     """Check cached ZIP directories; fully validate new downloads before caching."""
     dest = Path(dest)
     if dest.is_file():
         _validate_zip(dest)
+        if validate is not None:
+            validate(dest)
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=dest.parent, suffix=".part", delete=False) as f:
@@ -157,7 +253,16 @@ def download_if_needed(url: str, dest: Path) -> None:
                 for chunk in response.iter_content(chunk_size=1024 * 1024):
                     if chunk:
                         out.write(chunk)
-        _validate_zip(tmp, full=True)
+        try:
+            _validate_zip(tmp, full=True)
+        except BadZipFile as error:
+            # The temporary file is removed below, so name the cache entry instead.
+            raise BadZipFile(f"Downloaded DataPack rejected for {dest}: invalid ZIP "
+                             f"({error.__cause__}). No cache entry was published. Retry the "
+                             f"download; if it repeats, report this error and the source "
+                             f"URL: {url}") from error
+        if validate is not None:
+            validate(tmp)
         tmp.replace(dest)
     finally:
         tmp.unlink(missing_ok=True)
@@ -201,35 +306,56 @@ def _validate_zip(path: Path, *, full: bool = False) -> None:
 
 def _resolve_source(*, geo: str, state: str,
                     source_zip: str | Path | None,
-                    cache_dir: str | Path) -> Path:
+                    cache_dir: str | Path, year: int = 2021) -> Path:
     if source_zip is not None:
         source = Path(source_zip)
         if not source.is_file():
             raise FileNotFoundError(source)
         _validate_zip(source)
+        _validate_source_identity(source, year, geo=geo)
         return source
-    url = datapack_url(geo, state)
+    url = datapack_url(geo, state, year=year)
     cached = Path(cache_dir) / Path(url).name
-    download_if_needed(url, cached)
+
+    def validate_cached(path: Path) -> None:
+        with _zip_read_errors(path), ZipFile(path) as archive:
+            try:
+                _check_archive(archive, year, geo=geo, suggest_year=False)
+            except ValueError as error:
+                detail = str(error).rstrip(". ")
+                if path == cached:
+                    raise ValueError(f"Invalid cached DataPack {cached}: {detail}. "
+                                     "Move it aside and retry to download the requested pack.") from error
+                raise ValueError(f"Downloaded DataPack rejected for {cached}: {detail}. "
+                                 "No cache entry was published. Retry the download; if it "
+                                 f"repeats, report this error and the source URL: {url}") from error
+
+    download_if_needed(url, cached, validate=validate_cached)
     return cached
 
 
 def find_members(z: ZipFile, table: str, geo: str,
-                 state: str | None = None) -> list[str]:
+                 state: str | None = None, *, year: int = 2021) -> list[str]:
     """Find a table within one state; infer state only when unambiguous."""
-    table = table.upper()
-    geo = geo.upper()
+    geo, _ = _validate_geography(geo, state or "NSW", year=year)
     if state is not None:
-        geo, state = _validate_geography(geo, state)
+        _, state = _validate_geography(geo, state, year=year)
+    _check_archive(z, year, geo=geo)
+    return _find_members_validated(z, table, geo, state, year=year)
+
+
+def _find_members_validated(z: ZipFile, table: str, geo: str,
+                            state: str | None, *, year: int) -> list[str]:
+    """Select parts after the caller validates this open archive's identity."""
+    pattern = _vintage(year)["member_re"]
+    table = table.upper()
     members: list[tuple[str, str, str]] = []
     for name in z.namelist():
-        match = MEMBER_RE.fullmatch(Path(name).name)
+        match = pattern.fullmatch(Path(name).name)
         if not match or match.group(3).upper() != geo:
             continue
         member_state = match.group(2).upper()
-        # National download URLs use AUS; CSV filenames use AUST.
-        if member_state == "AUST":
-            member_state = "AUS"
+        member_state = _member_state(member_state, year)
         members.append((match.group(1).upper(), member_state, name))
     if state is None:
         candidate_states = {member_state for key, member_state, _ in members
@@ -300,12 +426,20 @@ def load_csv(z: ZipFile, member: str, code: str) -> pd.DataFrame:
 
 
 def combine_table(z: ZipFile, table: str, geo: str,
-                  state: str | None = None) -> pd.DataFrame:
+                  state: str | None = None, *, year: int = 2021) -> pd.DataFrame:
     """Join parts by code within one state; ambiguous states require an argument."""
-    geo = geo.upper()
-    code = f"{geo}_CODE_2021"
+    geo, _ = _validate_geography(geo, state or "NSW", year=year)
+    if state is not None:
+        _, state = _validate_geography(geo, state, year=year)
+    _check_archive(z, year, geo=geo)
+    return _combine_validated_table(z, table, geo, state, year=year)
+
+
+def _combine_validated_table(z: ZipFile, table: str, geo: str,
+                             state: str | None, *, year: int) -> pd.DataFrame:
+    code = _code_column(geo, year)
     merged: pd.DataFrame | None = None
-    for member in find_members(z, table, geo, state):
+    for member in _find_members_validated(z, table, geo, state, year=year):
         frame = load_csv(z, member, code)
         if merged is None:
             merged = frame
@@ -394,8 +528,8 @@ def _validate_keep(keep: Sequence[str] | None) -> list[str] | None:
 def _transform_table(df: pd.DataFrame, *, geo: str,
                      codes: Sequence[str] | None,
                      keep: Sequence[str] | None,
-                     long: bool) -> pd.DataFrame:
-    code = f"{geo}_CODE_2021"
+                     long: bool, year: int = 2021) -> pd.DataFrame:
+    code = _code_column(geo, year)
     if codes is not None:
         requested = codes
         normalize = lambda value: _normalize_code(geo, value)
@@ -420,17 +554,18 @@ def _read_tables_from_zip(*, source: Path | BinaryIO, geo: str, state: str,
                           tables: Sequence[str],
                           codes: Sequence[str] | None,
                           keep: Sequence[str] | None,
-                          long: bool) -> dict[str, pd.DataFrame]:
+                          long: bool, year: int = 2021) -> dict[str, pd.DataFrame]:
     result: dict[str, pd.DataFrame] = {}
     with _zip_read_errors(source), ZipFile(source) as z:
+        _check_archive(z, year, geo=geo)
         for table in tables:
-            df = combine_table(z, table, geo, state)
+            df = _combine_validated_table(z, table, geo, state, year=year)
             result[table] = _transform_table(df, geo=geo, codes=codes,
-                                             keep=keep, long=long)
+                                             keep=keep, long=long, year=year)
     return result
 
 
-def load_census_tables(*, geo: str = "POA", state: str = "NSW",
+def load_census_tables(*, geo: str = "POA", state: str = "NSW", year: int = 2021,
                        tables: Sequence[str] = ("G01",),
                        source_zip: str | Path | None = None,
                        cache_dir: str | Path = "abs_cache",
@@ -439,25 +574,26 @@ def load_census_tables(*, geo: str = "POA", state: str = "NSW",
                        long: bool = False) -> dict[str, pd.DataFrame]:
     """Return {table_id: DataFrame}, downloading/caching once if needed.
 
-    ``geo`` is a supported 2021 geography in GEOGRAPHIES. Use strings to preserve
-    zeros. POA filters accept both "2000" and "POA2000"; returned codes retain
+    ``year`` is an integer, default 2021; 2016 currently supports POA only.
+    ``geo`` is validated for the requested year. Use strings to preserve zeros.
+    POA filters accept both "2000" and "POA2000"; returned codes retain
     the source format. Integer and finite whole-number float POA inputs are
     padded to four digits. Any unmatched code raises ValueError, including
     partially matched requests. CSV members must match the requested state.
     Supply a predownloaded ``source_zip`` to ensure offline operation.
     Set ``long=True`` for geography_code/variable/value rows.
     """
-    geo, state = _validate_geography(geo, state)
+    geo, state = _validate_geography(geo, state, year=year)
     table_ids = _normalize_tables(tables)
     codes = _validate_codes(geo, codes)
     keep = _validate_keep(keep)
     source = _resolve_source(geo=geo, state=state, source_zip=source_zip,
-                             cache_dir=cache_dir)
+                             cache_dir=cache_dir, year=year)
     return _read_tables_from_zip(source=source, geo=geo, state=state, tables=table_ids,
-                                 codes=codes, keep=keep, long=long)
+                                 codes=codes, keep=keep, long=long, year=year)
 
 
-def load_census(*, geo: str = "POA", state: str = "NSW",
+def load_census(*, geo: str = "POA", state: str = "NSW", year: int = 2021,
                 table: str = "G01", source_zip: str | Path | None = None,
                 cache_dir: str | Path = "abs_cache",
                 codes: Sequence[str | int | float] | None = None,
@@ -471,7 +607,7 @@ def load_census(*, geo: str = "POA", state: str = "NSW",
                          codes=['2000'], keep=['Tot_P_P'])
     """
     table_id = _normalize_tables([table])[0]
-    return load_census_tables(geo=geo, state=state, tables=[table_id],
+    return load_census_tables(geo=geo, state=state, year=year, tables=[table_id],
                               source_zip=source_zip, cache_dir=cache_dir,
                               codes=codes, keep=keep, long=long)[table_id]
 
@@ -647,9 +783,11 @@ def _xlsx_sheets(content: bytes) -> dict[str, list[list[str]]]:
             result = {}
             wanted = {"Table Number, Name, Population", "Cell Descriptors Information"}
             for sheet in workbook.findall("s:sheets/s:sheet", _XLSX_NS):
-                name = sheet.get("name")
-                if name not in wanted:
+                name = sheet.get("name", "")
+                canonical = {item.casefold(): item for item in wanted}.get(name.casefold())
+                if canonical is None:
                     continue
+                name = canonical
                 rel = relations[sheet.get(f"{{{_REL_NS}}}id")]
                 target = rel.get("Target", "")
                 path = posixpath.normpath(target.lstrip("/") if target.startswith("/")
@@ -706,11 +844,11 @@ def _metadata_records(rows: list[list[str]], headers: Sequence[str]) -> list[dic
     raise ValueError(f"Unrecognized ABS metadata headers: expected {list(headers)}")
 
 
-def _read_metadata(archive: ZipFile) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _read_metadata(archive: ZipFile, *, year: int = 2021) -> tuple[pd.DataFrame, pd.DataFrame]:
     members = [n for n in archive.namelist() if re.fullmatch(
-        r"Metadata_2021_GCP_DataPack(?:_[A-Za-z0-9]+)*\.xlsx", Path(n).name, re.I)]
+        rf"Metadata_{year}_GCP_DataPack(?:_[A-Za-z0-9]+)*\.xlsx", Path(n).name, re.I)]
     if len(members) != 1:
-        raise ValueError("Expected exactly one Metadata_2021_GCP_DataPack workbook; "
+        raise ValueError(f"Expected exactly one Metadata_{year}_GCP_DataPack workbook; "
                          f"found {len(members)}. Supply the complete official DataPack.")
     with _zip_read_errors(archive):
         sheets = _xlsx_sheets(archive.read(members[0]))
@@ -757,33 +895,38 @@ def _search_metadata(frame: pd.DataFrame, search: str | None) -> pd.DataFrame:
     return frame.reset_index(drop=True)
 
 
-def _available_table_ids(archive: ZipFile, geo: str, state: str) -> list[str]:
+def _available_table_ids(archive: ZipFile, geo: str, state: str, *,
+                         year: int = 2021) -> list[str]:
+    pattern = _vintage(year)["member_re"]
     ids = set()
     for member in archive.namelist():
-        match = MEMBER_RE.fullmatch(Path(member).name)
+        match = pattern.fullmatch(Path(member).name)
         if match and match.group(3).upper() == geo:
             member_state = match.group(2).upper()
-            if ("AUS" if member_state == "AUST" else member_state) == state:
+            if _member_state(member_state, year) == state:
                 ids.add(match.group(1)[:3].upper())
     if not ids:
-        raise ValueError(f"Archive has no 2021 {geo} tables for state {state}")
+        raise ValueError(f"Archive has no {year} {geo} tables for state {state}")
     return sorted(ids)
 
 
-def list_census_tables(*, geo: str = "POA", state: str = "NSW",
+def list_census_tables(*, geo: str = "POA", state: str = "NSW", year: int = 2021,
                        source_zip: str | Path | None = None,
                        cache_dir: str | Path = "abs_cache",
                        search: str | None = None) -> pd.DataFrame:
     """List available logical tables with official names, populations and file parts."""
-    geo, state = _validate_geography(geo, state)
+    geo, state = _validate_geography(geo, state, year=year)
     _validate_search(search)
-    source = _resolve_source(geo=geo, state=state, source_zip=source_zip, cache_dir=cache_dir)
+    pattern = _vintage(year)["member_re"]
+    source = _resolve_source(geo=geo, state=state, source_zip=source_zip, cache_dir=cache_dir,
+                             year=year)
     with ZipFile(source) as archive:
-        tables, _ = _read_metadata(archive)
+        _check_archive(archive, year, geo=geo)
+        tables, _ = _read_metadata(archive, year=year)
         available = []
-        for table in _available_table_ids(archive, geo, state):
-            paths = find_members(archive, table, geo, state)
-            available.append((table, ",".join(MEMBER_RE.fullmatch(Path(p).name).group(1).upper()
+        for table in _available_table_ids(archive, geo, state, year=year):
+            paths = _find_members_validated(archive, table, geo, state, year=year)
+            available.append((table, ",".join(pattern.fullmatch(Path(p).name).group(1).upper()
                                                for p in paths)))
         unknown = {table for table, _ in available} - set(tables["table"])
         if unknown:
@@ -793,24 +936,27 @@ def list_census_tables(*, geo: str = "POA", state: str = "NSW",
     return _search_metadata(result, search)
 
 
-def describe_census(*, geo: str = "POA", state: str = "NSW",
+def describe_census(*, geo: str = "POA", state: str = "NSW", year: int = 2021,
                     tables: Sequence[str] | None = None,
                     source_zip: str | Path | None = None,
                     cache_dir: str | Path = "abs_cache",
                     search: str | None = None) -> pd.DataFrame:
     """Describe variables, all available tables by default; does not read data rows."""
-    geo, state = _validate_geography(geo, state)
+    geo, state = _validate_geography(geo, state, year=year)
     requested = _normalize_tables(tables) if tables is not None else None
     _validate_search(search)
-    source = _resolve_source(geo=geo, state=state, source_zip=source_zip, cache_dir=cache_dir)
+    pattern = _vintage(year)["member_re"]
+    source = _resolve_source(geo=geo, state=state, source_zip=source_zip, cache_dir=cache_dir,
+                             year=year)
     with ZipFile(source) as archive:
-        _, variables = _read_metadata(archive)
+        _check_archive(archive, year, geo=geo)
+        _, variables = _read_metadata(archive, year=year)
         if requested is None:
-            requested = _available_table_ids(archive, geo, state)
+            requested = _available_table_ids(archive, geo, state, year=year)
         parts = set()
         for table in requested:
-            paths = find_members(archive, table, geo, state)
-            parts.update(MEMBER_RE.fullmatch(Path(p).name).group(1).upper() for p in paths)
+            paths = _find_members_validated(archive, table, geo, state, year=year)
+            parts.update(pattern.fullmatch(Path(p).name).group(1).upper() for p in paths)
         result = variables.loc[variables["datapack_table"].isin(parts)].copy()
         missing = parts - set(result["datapack_table"])
         if missing:
@@ -818,10 +964,13 @@ def describe_census(*, geo: str = "POA", state: str = "NSW",
     return _search_metadata(result, search)
 
 
+_LOCK_NAME = ".abs-census-etl.lock"
+
+
 @contextmanager
 def _export_lock(out: Path):
     """Serialize cooperating exporters; keep the inode, release OS lock on process exit."""
-    path = out / ".abs-census-etl.lock"
+    path = out / _LOCK_NAME
     if path.is_symlink():
         raise ValueError(f"Symlinked export lock is not supported: {path}")
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
@@ -877,7 +1026,117 @@ def _source_hash(stream: BinaryIO) -> str:
     return digest
 
 
-def export_census(*, geo: str = "POA", state: str = "NSW",
+def _preflight_format(out: Path, geo: str, state: str,
+                      tables: Sequence[str], file_format: str) -> None:
+    other_format = "parquet" if file_format == "csv" else "csv"
+    conflicts = [out / f"2021_GCP_{geo}_{state}_{table}_{shape}.{other_format}"
+                 for table in tables for shape in ("wide", "long")
+                 if (out / f"2021_GCP_{geo}_{state}_{table}_{shape}.{other_format}").exists()]
+    if conflicts:
+        raise FileExistsError("Other-format exports already exist: "
+                              + ", ".join(str(path) for path in conflicts) + ". "
+                              "Use a fresh output directory or keep the existing format.")
+
+
+def _preflight_destination(*, out_dir: Path, existing_parent: Path, geo: str,
+                           state: str, table_ids: Sequence[str], long: bool,
+                           file_format: str, warned_orphans: set[Path]
+                           ) -> tuple[Path, dict[str, Path], dict]:
+    """Inspect without writing; callers must repeat under lock before using results."""
+    recovery_journals = []
+    orphan_folders = []
+    try:
+        children = list(out_dir.iterdir())
+    except FileNotFoundError:
+        children = []
+    for child in sorted(children):
+        if not child.name.startswith(".abs-export-"):
+            continue
+        journal = _recovery_journal(child)
+        if journal is None:
+            orphan_folders.append(child)
+        else:
+            recovery_journals.append(journal)
+    if recovery_journals:
+        raise _ExportRecoveryError("Unresolved export recovery journal: "
+                                   + ", ".join(f"{path} (state: {_journal_state(path)})"
+                                               for path in recovery_journals)
+                                   + ". Verify recovery, then remove or archive its "
+                                   "directory outside the output folder before exporting.")
+    orphan_folders = [path for path in orphan_folders if path not in warned_orphans]
+    if orphan_folders:
+        # Never delete an orphan automatically: its provenance is unknown.
+        warnings.warn("Staging folders without a recovery journal: "
+                      + ", ".join(str(path) for path in orphan_folders)
+                      + ". They hold unpublished files from an interrupted export or "
+                      "one still running; delete them when no export is running.",
+                      RuntimeWarning, stacklevel=3)
+        warned_orphans.update(orphan_folders)
+    _preflight_format(out_dir, geo, state, table_ids, file_format)
+    manifest_path = out_dir / f"2021_GCP_{geo}_{state}_manifest.json"
+    targets = {table: out_dir / (f"2021_GCP_{geo}_{state}_{table}_"
+                                 f"{'long' if long else 'wide'}.{file_format}")
+               for table in table_ids}
+    destinations = [manifest_path, *targets.values()]
+    links = [path for path in destinations if path.is_symlink()]
+    if links:
+        raise ValueError("Symlinked export files are not supported: "
+                         + ", ".join(str(path) for path in links))
+    for path in destinations:
+        if path.exists() and not path.is_file():
+            raise IsADirectoryError(f"Export file target is not a regular file: {path}")
+    # Best effort: Windows directory ACLs and file locks are not exposed by
+    # os.access. Actual staging/publication errors still need recovery.
+    read_only = [path for path in destinations
+                 if path.exists() and not os.access(path, os.W_OK)]
+    if not os.access(existing_parent, os.W_OK | os.X_OK):
+        read_only.insert(0, existing_parent)
+    if read_only:
+        raise PermissionError("Read-only export output: "
+                              + ", ".join(str(path) for path in read_only) + ". "
+                              "Make it writable or use a fresh output folder.")
+    retained_tables = {}
+    if manifest_path.exists():
+        try:
+            previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (ValueError, UnicodeError) as exc:
+            raise ValueError(f"Invalid existing manifest: {manifest_path}. "
+                             "Remove only this manifest or use a fresh output folder; "
+                             "removing it discards prior inventory, not exported data.") from exc
+        if (not isinstance(previous, dict)
+                or previous.get("geography") != geo or previous.get("state") != state
+                or previous.get("census_year") != 2021 or previous.get("asgs_edition") != 3
+                or not isinstance(previous.get("tables"), dict)
+                or any(not isinstance(entry, dict) or not isinstance(entry.get("file"), str)
+                       for entry in previous["tables"].values())):
+            raise ValueError(f"Incompatible existing manifest: {manifest_path}. "
+                             "Remove only this manifest or use a fresh output folder; "
+                             "removing it discards prior inventory, not exported data.")
+        for table, entry in previous["tables"].items():
+            # Older manifests kept provenance only at the top level. Backfill
+            # those fields before combining entries from separate export calls.
+            retained = dict(entry)
+            # Handle legacy absolute paths from either operating-system family.
+            retained["file"] = PureWindowsPath(retained["file"]).name
+            for field in ("source", "source_url", "created_utc", "file_format"):
+                retained.setdefault(field, previous.get(field))
+            if retained.get("file_format") is None:
+                retained["file_format"] = Path(retained["file"]).suffix.lstrip(".")
+            if "shape" not in retained:
+                stem = Path(retained["file"]).stem
+                retained["shape"] = "long" if stem.endswith("_long") else "wide"
+            provenance = retained.get("source")
+            if isinstance(provenance, str):
+                absolute = (retained.get("source_path_kind") == "absolute"
+                            or PurePosixPath(provenance).is_absolute()
+                            or PureWindowsPath(provenance).is_absolute())
+                retained["source_path_kind"] = "absolute" if absolute else "legacy_cwd_relative"
+            retained.setdefault("source_sha256", None)
+            retained_tables[table] = retained
+    return manifest_path, targets, retained_tables
+
+
+def export_census(*, geo: str = "POA", state: str = "NSW", year: int = 2021,
                   tables: Sequence[str] = ("G01",),
                   source_zip: str | Path | None = None,
                   cache_dir: str | Path = "abs_cache",
@@ -886,7 +1145,10 @@ def export_census(*, geo: str = "POA", state: str = "NSW",
                   long: bool = False, out: str | Path = "abs_out",
                   file_format: str = "csv") -> dict[str, Path]:
     """Run extraction and write tables + a JSON manifest. Return output paths."""
-    geo, state = _validate_geography(geo, state)
+    geo, state = _validate_geography(geo, state, year=year)
+    if year != 2021:
+        raise ValueError("2016 exports are not enabled yet; use load_census/load_census_tables "
+                         "or --list-columns/--list-tables/--describe with --year 2016")
     table_ids = _normalize_tables(tables)
     codes = _validate_codes(geo, codes)
     keep = _validate_keep(keep)
@@ -912,114 +1174,34 @@ def export_census(*, geo: str = "POA", state: str = "NSW",
                               "Make it writable or use a fresh output folder.")
     if source_zip is not None and not Path(source_zip).is_file():
         raise FileNotFoundError(f"Source ZIP is not a file: {source_zip}")
-    if source_zip is not None and not out_dir.exists():
+    warned_orphans: set[Path] = set()
+    # Cooperating exports create the lock file before staging and never remove
+    # it. With one present, lock first: a running export then reports busy and
+    # its staging/journal state is never read unlocked. Without one, check an
+    # explicit ZIP before creating it; _resolve_source rechecks under the lock.
+    check_before_lock = (source_zip is not None
+                         and not os.path.lexists(out_dir / _LOCK_NAME))
+    if check_before_lock:
+        # Reject known destination problems before opening an explicit ZIP.
+        # Results are discarded here: only the locked reread feeds publication.
+        _preflight_destination(
+            out_dir=out_dir, existing_parent=existing_parent, geo=geo, state=state,
+            table_ids=table_ids, long=long, file_format=file_format,
+            warned_orphans=warned_orphans)
         _validate_zip(Path(source_zip))
+        _validate_source_identity(Path(source_zip), year, geo=geo)
     out_dir.mkdir(parents=True, exist_ok=True)
     with _export_lock(out_dir):
-        # Inspect recovery and all mutable destination state only under the lock.
-        recovery_journals = []
-        orphan_folders = []
-        try:
-            children = list(out_dir.iterdir())
-        except FileNotFoundError:
-            children = []
-        for child in sorted(children):
-            if not child.name.startswith(".abs-export-"):
-                continue
-            journal = _recovery_journal(child)
-            if journal is None:
-                orphan_folders.append(child)
-            else:
-                recovery_journals.append(journal)
-        if recovery_journals:
-            raise _ExportRecoveryError("Unresolved export recovery journal: "
-                                       + ", ".join(f"{path} (state: {_journal_state(path)})"
-                                                   for path in recovery_journals)
-                                       + ". Verify recovery, then remove or archive its "
-                                       "directory outside the output folder before exporting.")
-        if orphan_folders:
-            # Never delete an orphan automatically: its provenance is unknown.
-            warnings.warn("Staging folders without a recovery journal: "
-                          + ", ".join(str(path) for path in orphan_folders)
-                          + ". They hold unpublished files from an interrupted export or "
-                          "one still running; delete them when no export is running.",
-                          RuntimeWarning, stacklevel=2)
-        # Preflight every table before writing: old other-format exports must not
-        # remain silently in use by downstream consumers during format migration.
-        other_format = "parquet" if file_format == "csv" else "csv"
-        conflicts = [out_dir / f"2021_GCP_{geo}_{state}_{table}_{shape}.{other_format}"
-                     for table in table_ids for shape in ("wide", "long")
-                     if (out_dir / f"2021_GCP_{geo}_{state}_{table}_{shape}.{other_format}").exists()]
-        if conflicts:
-            raise FileExistsError("Other-format exports already exist: "
-                                  + ", ".join(str(path) for path in conflicts) + ". "
-                                  "Use a fresh output directory or keep the existing format.")
-        manifest_path = out_dir / f"2021_GCP_{geo}_{state}_manifest.json"
-        targets = {table: out_dir / (f"2021_GCP_{geo}_{state}_{table}_"
-                                     f"{'long' if long else 'wide'}.{file_format}")
-                   for table in table_ids}
-        destinations = [manifest_path, *targets.values()]
-        links = [path for path in destinations if path.is_symlink()]
-        if links:
-            raise ValueError("Symlinked export files are not supported: "
-                             + ", ".join(str(path) for path in links))
-        for path in destinations:
-            if path.exists() and not path.is_file():
-                raise IsADirectoryError(f"Export file target is not a regular file: {path}")
-        # Best effort: Windows directory ACLs and file locks are not exposed by
-        # os.access. Actual staging/publication errors still need recovery.
-        read_only = [path for path in destinations
-                     if path.exists() and not os.access(path, os.W_OK)]
-        if not os.access(existing_parent, os.W_OK | os.X_OK):
-            read_only.insert(0, existing_parent)
-        if read_only:
-            raise PermissionError("Read-only export output: "
-                                  + ", ".join(str(path) for path in read_only) + ". "
-                                  "Make it writable or use a fresh output folder.")
-        retained_tables = {}
-        if manifest_path.exists():
-            try:
-                previous = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except (ValueError, UnicodeError) as exc:
-                raise ValueError(f"Invalid existing manifest: {manifest_path}. "
-                                 "Remove only this manifest or use a fresh output folder; "
-                                 "removing it discards prior inventory, not exported data.") from exc
-            if (not isinstance(previous, dict)
-                    or previous.get("geography") != geo or previous.get("state") != state
-                    or previous.get("census_year") != 2021 or previous.get("asgs_edition") != 3
-                    or not isinstance(previous.get("tables"), dict)
-                    or any(not isinstance(entry, dict) or not isinstance(entry.get("file"), str)
-                           for entry in previous["tables"].values())):
-                raise ValueError(f"Incompatible existing manifest: {manifest_path}. "
-                                 "Remove only this manifest or use a fresh output folder; "
-                                 "removing it discards prior inventory, not exported data.")
-            for table, entry in previous["tables"].items():
-                # Older manifests kept provenance only at the top level. Backfill
-                # those fields before combining entries from separate export calls.
-                retained = dict(entry)
-                # Handle legacy absolute paths from either operating-system family.
-                retained["file"] = PureWindowsPath(retained["file"]).name
-                for field in ("source", "source_url", "created_utc", "file_format"):
-                    retained.setdefault(field, previous.get(field))
-                if retained.get("file_format") is None:
-                    retained["file_format"] = Path(retained["file"]).suffix.lstrip(".")
-                if "shape" not in retained:
-                    stem = Path(retained["file"]).stem
-                    retained["shape"] = "long" if stem.endswith("_long") else "wide"
-                provenance = retained.get("source")
-                if isinstance(provenance, str):
-                    absolute = (retained.get("source_path_kind") == "absolute"
-                                or PurePosixPath(provenance).is_absolute()
-                                or PureWindowsPath(provenance).is_absolute())
-                    retained["source_path_kind"] = "absolute" if absolute else "legacy_cwd_relative"
-                retained.setdefault("source_sha256", None)
-                retained_tables[table] = retained
+        manifest_path, targets, retained_tables = _preflight_destination(
+            out_dir=out_dir, existing_parent=existing_parent, geo=geo, state=state,
+            table_ids=table_ids, long=long, file_format=file_format,
+            warned_orphans=warned_orphans)
         source = _resolve_source(geo=geo, state=state, source_zip=source_zip,
-                                 cache_dir=cache_dir).resolve()
+                                 cache_dir=cache_dir, year=year).resolve()
         with source.open("rb", buffering=0) as stream:
             source_sha256 = _source_hash(stream)
             data = _read_tables_from_zip(source=stream, geo=geo, state=state, tables=table_ids,
-                                         codes=codes, keep=keep, long=long)
+                                         codes=codes, keep=keep, long=long, year=year)
             if _source_hash(stream) != source_sha256:
                 raise ValueError(f"Source ZIP changed during export: {source}; retry with a stable copy")
         url = datapack_url(geo, state)
@@ -1032,7 +1214,7 @@ def export_census(*, geo: str = "POA", state: str = "NSW",
         work = Path(tempfile.mkdtemp(dir=out_dir, prefix=".abs-export-"))
         staged = {}
         try:
-            code = f"{geo}_CODE_2021"
+            code = _code_column(geo, year)
             for table_id, df in data.items():
                 target = targets[table_id]
                 pending = work / f"{target.name}.part"
@@ -1085,7 +1267,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error("metadata discovery does not accept --codes, --keep or --long")
         if args.list_tables and args.tables is not None:
             parser.error("--list-tables lists every available table; use --search to filter")
-        options = dict(geo=args.geo, state=args.state, source_zip=args.source_zip,
+        options = dict(geo=args.geo, state=args.state, year=args.year, source_zip=args.source_zip,
                        cache_dir=args.out / "raw", search=args.search)
         if args.describe:
             frame = describe_census(tables=args.tables, **options)
@@ -1094,10 +1276,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(frame.to_csv(sep="\t", index=False), end="")
         return 0
     if args.list_columns:
-        data = load_census_tables(geo=args.geo, state=args.state,
+        data = load_census_tables(geo=args.geo, state=args.state, year=args.year,
                                   tables=args.tables or ["G01"], source_zip=args.source_zip,
                                   cache_dir=args.out / "raw")
-        code = f"{args.geo}_CODE_2021"
+        code = _code_column(args.geo, args.year)
         for table, df in data.items():
             print(f"\n{table} [{args.geo}]: {len(df):,} areas, "
                   f"{len(df.columns) - 1} measures")
@@ -1105,7 +1287,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     with warnings.catch_warnings(record=True) as caught:
         try:
-            outputs = export_census(geo=args.geo, state=args.state, tables=args.tables or ["G01"],
+            outputs = export_census(geo=args.geo, state=args.state, year=args.year, tables=args.tables or ["G01"],
                                     source_zip=args.source_zip,
                                     cache_dir=args.out / "raw", codes=args.codes,
                                     keep=args.keep, long=args.long, out=args.out,

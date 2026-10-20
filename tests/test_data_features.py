@@ -312,7 +312,7 @@ class DataFeatureTests(unittest.TestCase):
         out = self.base/'existing'
         etl.export_census(source_zip=self.source, out=out)
         before = {p.name: p.read_bytes() for p in out.iterdir()}
-        with patch.object(etl, 'combine_table', side_effect=EOFError('truncated member')):
+        with patch.object(etl, 'load_csv', side_effect=EOFError('truncated member')):
             with self.assertRaisesRegex(BadZipFile, 'source.zip.*truncated member.*Move it aside'):
                 etl.export_census(source_zip=self.source, out=out)
         self.assertEqual(before, {p.name: p.read_bytes() for p in out.iterdir()})
@@ -494,7 +494,7 @@ class DataFeatureTests(unittest.TestCase):
         with ZipFile(self.source, 'w') as z:
             for name, content in members.items():
                 z.writestr(name, content)
-        with self.assertRaisesRegex(ValueError, 'no 2021'):
+        with self.assertRaisesRegex(ValueError, 'Mixed Census years.*2016.*2021'):
             etl.list_census_tables(source_zip=self.source)
 
     def test_discovery_cli_and_invalid_search_before_source(self):
