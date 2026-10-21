@@ -189,10 +189,11 @@ keep future-schema outputs in separate folders rather than using that old writer
 on them. This compatibility promise concerns 2021 manifests,
 not asking 0.2.0 to process 2016.
 
-Formats produced only during unreleased development (inline document text or the
-old statistical/non_ABS structure labels) are refused rather than migrated.
-Regenerate those local exports in a fresh folder. Historical evidence remains
-unchanged; it is not an inventory for a current export.
+Inline document text, a format produced only during unreleased development, is
+refused rather than migrated; regenerate those local exports in a fresh folder.
+Earlier development boundary labels are refreshed like any descriptive label when
+the identifying keys match; otherwise the manifest is refused. Historical evidence
+remains unchanged; it is not an inventory for a current export.
 
 ## Use from Python
 
@@ -271,12 +272,16 @@ applies to every supported geography. Direct `find_members` and `combine_table` 
 `state` only when the requested table/parts belong to one state; mixed-state candidates
 require an explicit state, even when the geographic codes happen to match.
 
-Logical-table extraction (for example G04) requires every part declared by the
-metadata workbook. Missing metadata for a split table is an error. Explicit
-part requests such as G04A intentionally select only that part. find_members
-lists available filenames; it does not certify extraction completeness.
-Duplicate raw CSV headers, including whitespace variants, are refused before
-pandas can rename them.
+Logical-table extraction of a split table (for example G04) reads the metadata
+workbook and requires every part it declares. A missing, ambiguous or malformed
+workbook, or a split table the workbook does not declare, is an error.
+Single-file tables such as G01 do not read the workbook. An archive with both a
+single file and lettered parts for one table (G04 plus G04A) is refused as
+ambiguous; none of the official packs checked mixes them. Explicit part
+requests such as G04A intentionally select only that part. find_members lists
+available filenames; it does not certify extraction completeness. Duplicate raw
+CSV headers, including whitespace variants, are refused before pandas can
+rename them.
 
 ## Supported geographies and discovery
 
@@ -316,7 +321,8 @@ The complete official 2021 DataPack contains
 Name, Population** and **Cell Descriptors Information** sheets, accepting their
 observed capitalization differences. It needs no extra
 Excel package and does not evaluate formulas. A missing, ambiguous or malformed
-workbook raises an error; CSV-only extraction still works without the workbook.
+workbook raises an error for discovery and for split-table extraction (see
+[split-table extraction](#use-from-python)); single-file tables still load without it.
 The original short measure names remain unchanged in wide and long data.
 
 ```python

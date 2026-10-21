@@ -22,4 +22,5 @@ Distribute through GitHub Releases, not PyPI. The same Windows or Linux/macOS se
 ## Checks
 
 Use the project Python: `.venv/bin/python -m unittest discover -s tests -v` on Unix, or `.venv\Scripts\python.exe -m unittest discover -s tests -v` on Windows.
+The checkout-only research audits run separately (CI runs both): `.venv/bin/python -m unittest discover -s docs/research/slice11 -p 'test_*.py' -v` and the same with `docs/research/year_coverage`.
 Keep regression tests offline, with realistic ABS filenames, headers, and geography-code formats. Preserve leading zeros and string codes. Use real NSW 2000/2010 and NT 0800/0810 identifiers with the correct state; use deliberately bare NT fixtures to test numeric inference. Test partial unmatched-code failures and input case/whitespace normalization.

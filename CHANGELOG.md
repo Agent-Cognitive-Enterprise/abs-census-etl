@@ -7,8 +7,12 @@
 - Direct table helpers refuse mixed/unidentified archives previously filtered.
 - Cached ZIP identity is validated; wrong-year/profile caches must be replaced.
 - Unsupported CLI year/geography combinations now exit 2 as argument errors.
-- Logical split-table extraction requires metadata-declared parts to be complete;
-  missing metadata for split tables and duplicate raw CSV headers are refused.
+- Logical split-table extraction requires a valid metadata workbook and every
+  part it declares; a missing, ambiguous or malformed workbook, or an undeclared
+  split table, is refused. Single-file tables do not read the workbook.
+- An archive with both a single file and lettered parts for one table is refused
+  as ambiguous, including by find_members and discovery.
+- Duplicate raw CSV headers are refused before pandas can rename them.
 
 ### Added and fixed
 

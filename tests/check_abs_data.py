@@ -218,8 +218,6 @@ def main(argv=None):
     parser.add_argument('--all-geographies', action='store_true',
                         help='Also check remaining supported geographies with source-cell checks')
     args = parser.parse_args(argv)
-    require(not args.offline or args.reference_dir is not None,
-            '--offline requires --reference-dir with reviewed QuickStats captures')
     selected_geos = None if args.geographies is None else {
         etl._validate_geography(g, 'NSW', year=args.year)[0] for g in args.geographies}
     references = REFERENCES_2016 if args.year == 2016 else REFERENCES_2021

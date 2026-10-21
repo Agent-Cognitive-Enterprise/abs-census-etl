@@ -163,6 +163,25 @@ class DataFeatureTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'Duplicate column names.*G01'):
                     etl.load_census(source_zip=self.source)
 
+    def test_raw_header_bom_and_distinct_suffix_names_load(self):
+        with ZipFile(self.source) as archive:
+            members = {name: archive.read(name) for name in archive.namelist()}
+        name = next(name for name in members if 'Census_G01_' in name)
+        for header, columns in [('﻿POA_CODE_2021,Tot_P_P', ['POA_CODE_2021', 'Tot_P_P']),
+                                ('POA_CODE_2021,X,X.1', ['POA_CODE_2021', 'X', 'X.1'])]:
+            values = ','.join(['POA2000'] + ['1'] * (len(columns) - 1))
+            members[name] = f'{header}\n{values}\n'.encode()
+            with ZipFile(self.source, 'w') as archive:
+                for member, body in members.items(): archive.writestr(member, body)
+            self.assertEqual(etl.load_census(source_zip=self.source).columns.tolist(), columns)
+
+    def test_split_table_absent_from_workbook_is_named(self):
+        variables = [row for row in VARIABLE_ROWS if len(row) < 5 or row[4] != 'G04']
+        source = make_pack(self.base/'undeclared.zip', metadata=workbook(variables=variables))
+        with self.assertRaisesRegex(ValueError, 'ABS metadata does not declare table G04'):
+            etl.load_census(source_zip=source, table='G04')
+        self.assertEqual(len(etl.load_census(source_zip=source, table='G01')), 1)
+
     def test_unexpected_numeric_tokens_rejected_with_context(self):
         for token in ['12a', '"1,234"', 'unknown', 'NaN', '#N/A', 'inf', '-Infinity', '1e999']:
             with self.subTest(token=token):

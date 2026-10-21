@@ -390,6 +390,11 @@ def _find_members_validated(z: ZipFile, table: str, geo: str,
         paths = by_id[table]
         if len(paths) != 1:
             raise ValueError(f"Ambiguous table {table}: {paths}")
+        # No checked official pack ships a single file alongside its lettered parts.
+        shadowed = sorted(key for key in by_id if re.fullmatch(re.escape(table) + r"[A-Z]", key))
+        if shadowed:
+            raise ValueError(f"Ambiguous table {table}: single file and split parts "
+                             f"{shadowed}; supply the complete official DataPack")
         return paths
     parts = sorted((key, paths) for key, paths in by_id.items()
                    if re.fullmatch(re.escape(table) + r"[A-Z]", key))
@@ -454,14 +459,17 @@ def _combine_validated_table(z: ZipFile, table: str, geo: str,
     if re.fullmatch(r"G[0-9]{2}", table):
         pattern = _vintage(year)["member_re"]
         actual = {pattern.fullmatch(Path(member).name).group(1).upper() for member in members}
-        has_metadata = any(_METADATA_ID_RE.fullmatch(Path(name).name) for name in z.namelist())
-        if actual != {table} or has_metadata:
+        # Only split tables need the workbook; a single file is already complete.
+        if actual != {table}:
             cache = {} if metadata_cache is None else metadata_cache
             if year not in cache:
                 _, variables = _read_metadata(z, year=year)
                 cache[year] = {key: set(rows["datapack_table"])
                                for key, rows in variables.groupby("table")}
-            expected = cache[year].get(table, set())
+            expected = cache[year].get(table)
+            if expected is None:
+                raise ValueError(f"ABS metadata does not declare table {table}; "
+                                 "supply the complete official DataPack")
             if actual != expected:
                 raise ValueError(f"Incomplete or unexpected parts of {table}: "
                                  f"missing {sorted(expected - actual)}, "

@@ -37,7 +37,7 @@ product suite does not require this folder. These synthetic tests run in a clean
 clone without retained evidence. Real-data replay needs the ignored captures.
 Research tools remain excluded from source distributions. Shipped
 check_abs_data.py checks full local packs and supports --offline, --year and
-all-geography selection; offline use requires --reference-dir.
+all-geography selection; offline curated references require --reference-dir.
 
 
 `original_acquisition.py.txt` is the exact initial acquisition source. The current

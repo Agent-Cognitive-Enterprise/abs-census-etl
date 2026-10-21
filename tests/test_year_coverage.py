@@ -1289,6 +1289,46 @@ class YearCoverageTests(unittest.TestCase):
             self.assertIn('G04B', result.stderr)
             self.assertNotIn('Traceback', result.stderr)
 
+    def rewritten_pack(self, original, path, change):
+        with ZipFile(original) as archive:
+            members = {name: archive.read(name) for name in archive.namelist()}
+        change(members)
+        with ZipFile(path, 'w', compression=ZIP_DEFLATED) as archive:
+            for name, body in members.items(): archive.writestr(name, body)
+        return path
+
+    def test_single_file_tables_never_read_the_metadata_workbook(self):
+        def damage(members):
+            name = next(name for name in members if name.endswith('_DataPack.xlsx'))
+            members[name] = b'not a workbook'
+        for year, original in [(2016, self.old), (2021, self.new)]:
+            with patch.object(etl, '_read_metadata',
+                              side_effect=AssertionError('workbook read for single-file table')):
+                frame = etl.load_census(year=year, source_zip=original, table='G01')
+            self.assertEqual(frame.columns.tolist(), [f'POA_CODE_{year}', 'Tot_P_P'])
+            damaged = self.rewritten_pack(original, self.root/f'damaged-{year}.zip', damage)
+            self.assertEqual(len(etl.load_census(year=year, source_zip=damaged, table='G01')), 2)
+            with self.assertRaisesRegex(ValueError, 'Invalid ABS metadata workbook'):
+                etl.load_census(year=year, source_zip=damaged, table='G04')
+
+    def test_single_file_beside_its_split_parts_is_ambiguous(self):
+        def add_single(members):
+            part = next(name for name in members if 'Census_G04A_' in name)
+            members[part.replace('_G04A_', '_G04_')] = members[part]
+        message = r"Ambiguous table G04: single file and split parts \['G04A', 'G04B'\]"
+        for year, original in [(2016, self.old), (2021, self.new)]:
+            source = self.rewritten_pack(original, self.root/f'shadow-{year}.zip', add_single)
+            with ZipFile(source) as archive:
+                for helper in (etl.find_members, etl.combine_table):
+                    with self.assertRaisesRegex(ValueError, message, msg='shadowed split parts accepted'):
+                        helper(archive, 'G04', 'POA', 'NSW', year=year)
+            for call in (lambda: etl.load_census(year=year, source_zip=source, table='G04'),
+                         lambda: etl.list_census_tables(year=year, source_zip=source)):
+                with self.assertRaisesRegex(ValueError, message, msg='shadowed split parts accepted'):
+                    call()
+            part = etl.load_census(year=year, source_zip=source, table='G04A')
+            self.assertEqual(part.columns.tolist(), [f'POA_CODE_{year}', 'Age_yr_0_M'])
+
     def test_boundary_labels_refresh_but_identity_conflicts_refuse(self):
         out = self.root/'labels'
         etl.export_census(source_zip=self.new, tables=['G01', 'G02'], out=out)
@@ -1310,12 +1350,17 @@ class YearCoverageTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'contradicts boundary identity'):
                     etl.export_census(source_zip=self.new, out=out)
 
-    def test_offline_checker_requires_explicit_reviewed_reference_directory(self):
+    def test_offline_checker_requires_reference_dir_only_for_curated_references(self):
         import runpy
         checks = runpy.run_path(str(ROOT/'tests/check_abs_data.py'))
         with patch.object(etl.requests, 'get', side_effect=AssertionError('network')):
-            with self.assertRaisesRegex(RuntimeError, '--offline requires --reference-dir'):
+            with self.assertRaisesRegex(RuntimeError, 'Offline curated checks require --reference-dir'):
                 checks['main'](['--offline'])
+            # Non-reference geographies need only cached packs, never a reference folder.
+            with self.assertRaisesRegex(RuntimeError, 'Missing offline pack'):
+                checks['main'](['--year', '2016', '--offline', '--all-geographies',
+                                '--geographies', 'SA1', '--state', 'NSW',
+                                '--cache-dir', str(self.root/'absent')])
 
     def test_online_capture_never_overwrites_html_or_sidecar(self):
         import runpy

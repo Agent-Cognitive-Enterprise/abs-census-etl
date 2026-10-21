@@ -274,6 +274,17 @@ MUTATIONS = [
     ('accept unwritten document status', 'elif status is not None or encoding not in (',
      'elif status not in (None, "documented") or encoding not in (',
      'test_document_metadata_rejects_unwritten_documented_status', 'ValueError not raised'),
+    ('read the workbook for single-file tables', 'if actual != {table}:', 'if True:',
+     'test_single_file_tables_never_read_the_metadata_workbook',
+     'workbook read for single-file table'),
+    ('let a single file shadow its split parts', 'if shadowed:', 'if False:',
+     'test_single_file_beside_its_split_parts_is_ambiguous', 'shadowed split parts accepted'),
+    ('report an undeclared split table as missing parts', 'expected = cache[year].get(table)',
+     'expected = cache[year].get(table, set())', 'test_split_table_absent_from_workbook_is_named',
+     'does not match "Incomplete or unexpected parts of G04'),
+    ('read raw headers without BOM handling', 'encoding="utf-8-sig")), [])',
+     'encoding="utf-8")), [])', 'test_raw_header_bom_and_distinct_suffix_names_load',
+     'has no POA_CODE_2021'),
 
 ]
 
