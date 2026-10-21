@@ -84,9 +84,12 @@ SA1_G01 = """SA1_CODE_2021,Tot_P_P,Tot_P_M,Tot_P_F
 def make_zip(path: Path, *, poa_g01: str = POA_G01,
              poa_g04a: str = POA_G04A, poa_g04b: str = POA_G04B,
              extra: dict[str, str] | None = None) -> Path:
+    try:
+        from tests.test_data_features import workbook
+    except ModuleNotFoundError:
+        from test_data_features import workbook
     members = {
-        # Real ABS names; XLSX bytes are placeholders and intentionally never parsed.
-        "Metadata/Metadata_2021_GCP_DataPack_R1_R2.xlsx": "unused synthetic workbook",
+        "Metadata/Metadata_2021_GCP_DataPack_R1_R2.xlsx": workbook(),
         "Readme/2021AboutDataPacks_readme.txt": "This archive contains Census DataPack tables.",
         "unrelated.csv": "not,a,table\n",
         "2021 Census GCP Postal Areas for NSW/2021Census_G01_NSW_POA.csv": poa_g01,

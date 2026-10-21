@@ -44,6 +44,7 @@ percentages, rates and medians should not simply be summed.
 from __future__ import annotations
 
 import argparse
+import csv
 import errno
 import hashlib
 import io
@@ -345,7 +346,7 @@ def _resolve_source(*, geo: str, state: str,
 
 def find_members(z: ZipFile, table: str, geo: str,
                  state: str | None = None, *, year: int = 2021) -> list[str]:
-    """Find a table within one state; infer state only when unambiguous."""
+    """List available files in one state; extraction checks metadata completeness."""
     geo, _ = _validate_geography(geo, state or "NSW", year=year)
     if state is not None:
         _, state = _validate_geography(geo, state, year=year)
@@ -407,7 +408,7 @@ def _find_members_validated(z: ZipFile, table: str, geo: str,
 
 def load_csv(z: ZipFile, member: str, code: str) -> pd.DataFrame:
     with z.open(member) as source:
-        raw_header = pd.read_csv(source, nrows=0).columns.tolist()
+        raw_header = next(csv.reader(io.TextIOWrapper(source, encoding="utf-8-sig")), [])
     header = [column.strip() for column in raw_header]
     if code not in header:
         raise ValueError(f"{member} has no {code}; header begins {header[:6]}")
@@ -445,10 +446,29 @@ def combine_table(z: ZipFile, table: str, geo: str,
 
 
 def _combine_validated_table(z: ZipFile, table: str, geo: str,
-                             state: str | None, *, year: int) -> pd.DataFrame:
+                             state: str | None, *, year: int,
+                             metadata_cache: dict | None = None) -> pd.DataFrame:
+    table = table.upper()
     code = _code_column(geo, year)
+    members = _find_members_validated(z, table, geo, state, year=year)
+    if re.fullmatch(r"G[0-9]{2}", table):
+        pattern = _vintage(year)["member_re"]
+        actual = {pattern.fullmatch(Path(member).name).group(1).upper() for member in members}
+        has_metadata = any(_METADATA_ID_RE.fullmatch(Path(name).name) for name in z.namelist())
+        if actual != {table} or has_metadata:
+            cache = {} if metadata_cache is None else metadata_cache
+            if year not in cache:
+                _, variables = _read_metadata(z, year=year)
+                cache[year] = {key: set(rows["datapack_table"])
+                               for key, rows in variables.groupby("table")}
+            expected = cache[year].get(table, set())
+            if actual != expected:
+                raise ValueError(f"Incomplete or unexpected parts of {table}: "
+                                 f"missing {sorted(expected - actual)}, "
+                                 f"unexpected {sorted(actual - expected)}; "
+                                 "supply the complete official DataPack")
     merged: pd.DataFrame | None = None
-    for member in _find_members_validated(z, table, geo, state, year=year):
+    for member in members:
         frame = load_csv(z, member, code)
         if merged is None:
             merged = frame
@@ -567,8 +587,10 @@ def _read_tables_from_zip(*, source: Path | BinaryIO, geo: str, state: str,
     result: dict[str, pd.DataFrame] = {}
     with _zip_read_errors(source), ZipFile(source) as z:
         _check_archive(z, year, geo=geo)
+        metadata_cache = {}
         for table in tables:
-            df = _combine_validated_table(z, table, geo, state, year=year)
+            df = _combine_validated_table(z, table, geo, state, year=year,
+                                           metadata_cache=metadata_cache)
             result[table] = _transform_table(df, geo=geo, codes=codes,
                                              keep=keep, long=long, year=year)
     return result
@@ -1129,7 +1151,7 @@ def _document_metadata(document: dict) -> None:
     if status in ("oversize", "undecodable"):
         if encoding is not None or inferred is not None:
             raise ValueError("Unavailable encoding and inference must both be null")
-    elif status not in (None, "documented") or encoding not in (
+    elif status is not None or encoding not in (
             "ascii", "utf-8", "utf-8-sig", "cp1252"):
         raise ValueError("Invalid revision document encoding or status")
     elif type(inferred) is not bool or inferred != (encoding in {"utf-8", "cp1252"}):
@@ -1314,6 +1336,13 @@ def _preflight_destination(*, out_dir: Path, existing_parent: Path, geo: str,
             for field, value in identity.items():
                 if retained.get(field) is None:
                     retained[field] = value
+                elif field == "boundary" and isinstance(retained[field], dict):
+                    keys = ("framework", "edition", "geography", "source_code_column")
+                    if any(retained[field].get(key) != value[key] for key in keys):
+                        raise ValueError(f"Incompatible existing manifest: {manifest_path}: "
+                                         f"table {table} contradicts boundary identity; "
+                                         "use a fresh output folder or regenerate its inventory")
+                    retained[field] = value
                 elif type(retained[field]) is not type(value) or retained[field] != value:
                     raise ValueError(f"Incompatible existing manifest: {manifest_path}: "
                                      f"table {table} contradicts {field}. Use a fresh output "
@@ -1405,7 +1434,7 @@ def export_census(*, geo: str = "POA", state: str = "NSW", year: int = 2021,
                     "manifest_scope": "latest_export_per_table", "source_sha256": source_sha256,
                     "census_year": year, "asgs_edition": _vintage(year)["asgs_edition"],
                     "manifest_schema_version": 1, "writer_version": writer_version,
-                    "source_documents": source_documents, "profile": "GCP", "data_years": [year],
+                    "source_documents": source_documents, "profile": _vintage(year)["profile"], "data_years": [year],
                     "boundary": _boundary_details(geo, year), "source_revision": revision,
                     "geography": geo,
                     "state": state, "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -1430,7 +1459,7 @@ def export_census(*, geo: str = "POA", state: str = "NSW", year: int = 2021,
                 n_areas = df[code].nunique() if long else len(df)
                 manifest["tables"][table_id] = {
                     "census_year": year, "writer_version": writer_version,
-                    "profile": "GCP", "data_years": [year],
+                    "profile": _vintage(year)["profile"], "data_years": [year],
                     "boundary": manifest["boundary"], "source_revision": revision,
                     "file": target.name, "areas": n_areas,
                     "rows": len(df), "columns": df.columns.tolist(),

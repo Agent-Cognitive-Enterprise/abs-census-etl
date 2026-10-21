@@ -35,6 +35,10 @@ jobs:
         run: |
           .venv/bin/python -m unittest discover -s tests -v
           .venv/bin/python tests/check_mutations.py
+      - name: Research audit tests (checkout only)
+        run: |
+          .venv/bin/python -m unittest discover -s docs/research/slice11 -p 'test_*.py' -v
+          .venv/bin/python -m unittest discover -s docs/research/year_coverage -p 'test_*.py' -v
       - name: Packaging checks
         run: .venv/bin/python -O tests/check_packaging.py
       - name: Build release bundle

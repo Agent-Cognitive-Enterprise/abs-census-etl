@@ -13,7 +13,11 @@ wheels support Census 2021. This checkout is the unreleased development version
 export** for all ten supported 2016 geographies with explicit `year=2016` /
 `--year 2016`. The default remains 2021. Use [source setup](#setup) with this
 checkout for these additions; released 0.2.0 installers, wheels and source archives
-do not include them. See [the changelog](CHANGELOG.md) for details.
+do not include them. Validation covers all 59 tables in the 2016 NSW POA pack.
+Other geography/state payloads have not been exhaustively parsed; validation
+elsewhere ranges from archive inventories to selected-table checks. Strict numeric
+parsing may expose unexpected cells in an untested table. See the
+[coverage details](docs/data-guide.md#validation-coverage) and [changelog](CHANGELOG.md).
 
 ## Use and responsibility
 
@@ -247,9 +251,8 @@ the verified application release archive.
 
 For unreleased development source, such as 0.3.0.dev0 with Census 2016 support,
 or if no release exists, **Code → Download ZIP** or a Git clone provides that
-source; it is not a release. The ZIP extracts to an
-`abs-census-etl-main` folder and a clone creates `abs-census-etl`; open the terminal
-inside that folder. Python **3.14** is required for source setup. Managed
+source; it is not a release. Open the terminal inside the extracted repository
+directory or clone; its folder name depends on the branch or archive. Python **3.14** is required for source setup. Managed
 installers above are alternatives. Historical native
 coverage and revision limits are in
 [recorded native validation](docs/development.md#recorded-native-validation).

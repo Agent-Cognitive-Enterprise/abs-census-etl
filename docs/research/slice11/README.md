@@ -66,15 +66,12 @@ Replay output must be outside the input evidence tree, including after resolving
 symlinks, and must not exist. Report counts separate actual population comparisons
 from observations with no independent QuickStats reference.
 
-The ordinary `unittest discover -s tests` command invokes the checkout audit tests
-through `PackagingCheckTests.test_checkout_research_audit`, so CI unit jobs will run
-them once the files are committed and pushed. No hosted run of this uncommitted delta is
-claimed. Missing research tests fail in a checkout, including a worktree with a `.git`
-file. The bridge skips only when `PKG-INFO` positively identifies a source archive and
-`.git` is absent, because the research sources are deliberately not shipped. It does not
-require local raw evidence or network access: fixtures are small compressed synthetic
-ZIPs with observed member/header naming and saved-page HTML structure. The historical
-raw acquisition snapshots remain non-executable records.
+Research audit tests run explicitly in CI's checkout-only research step, using
+the command above. Product `unittest discover -s tests` does not require this
+folder. Offline synthetic tests work in a clean clone without docs/evidence/;
+replaying real acquisitions requires the separately retained, ignored evidence.
+Historical snapshots are retained as audit records, not advertised as standalone
+replay commands. No hosted success is implied until the relevant workflow runs.
 
 ## All-state structural survey (slice 11 only)
 

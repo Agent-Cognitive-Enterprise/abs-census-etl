@@ -151,6 +151,18 @@ class DataFeatureTests(unittest.TestCase):
         self.base = Path(self.temp.name)
         self.source = make_pack(self.base/'source.zip')
 
+    def test_raw_duplicate_headers_refused_before_pandas(self):
+        for header in ['X,X', ' X ,X', '"X"," X "', 'Tot_P_P,Tot_P_P']:
+            with ZipFile(self.source) as archive:
+                members = {name: archive.read(name) for name in archive.namelist()}
+            name = next(name for name in members if 'Census_G01_' in name)
+            members[name] = f'POA_CODE_2021,{header}\nPOA2000,1,2\n'.encode()
+            with ZipFile(self.source, 'w') as archive:
+                for member, body in members.items(): archive.writestr(member, body)
+            with patch.object(etl.pd, 'read_csv', side_effect=AssertionError('pandas renamed headers')):
+                with self.assertRaisesRegex(ValueError, 'Duplicate column names.*G01'):
+                    etl.load_census(source_zip=self.source)
+
     def test_unexpected_numeric_tokens_rejected_with_context(self):
         for token in ['12a', '"1,234"', 'unknown', 'NaN', '#N/A', 'inf', '-Infinity', '1e999']:
             with self.subTest(token=token):

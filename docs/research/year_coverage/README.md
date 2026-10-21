@@ -32,11 +32,12 @@ recomputes the table/header results. A runtime-hash mismatch is an error rather
 than a claim that an old report describes new code. Raw evidence is ignored and
 not present in another clone. Acquisition never overwrites existing evidence.
 
-The synthetic range tests run from the regular checkout packaging-test bridge,
-including future checkout CI. They are skipped only in source distributions,
-which deliberately exclude research tools. No hosted run is implied before the
-user commits/pushes this delta. Shipped tests/check_abs_data.py checks full local
-packs instead and supports --offline, --year and all-geography selection.
+The synthetic range tests run in CI's separate checkout research step; the
+product suite does not require this folder. These synthetic tests run in a clean
+clone without retained evidence. Real-data replay needs the ignored captures.
+Research tools remain excluded from source distributions. Shipped
+check_abs_data.py checks full local packs and supports --offline, --year and
+all-geography selection; offline use requires --reference-dir.
 
 
 `original_acquisition.py.txt` is the exact initial acquisition source. The current

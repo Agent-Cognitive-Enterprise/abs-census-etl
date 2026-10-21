@@ -2,9 +2,21 @@
 
 ## Unreleased
 
+### Breaking changes
+
+- Direct table helpers refuse mixed/unidentified archives previously filtered.
+- Cached ZIP identity is validated; wrong-year/profile caches must be replaced.
+- Unsupported CLI year/geography combinations now exit 2 as argument errors.
+- Logical split-table extraction requires metadata-declared parts to be complete;
+  missing metadata for split tables and duplicate raw CSV headers are refused.
+
+### Added and fixed
+
 - Support explicit 2016 GCP alongside the unchanged 2021 default: POA, SA1–SA4,
   LGA, SED, CED, STE and SSC in all states/territories and national AUS. SAL remains
   2021-only; SSC/SAL and seven-/eleven-digit SA1 identifiers are never translated.
+  Full 2016 table-payload validation covers NSW POA; other combinations have
+  structural or selected-table checks with varying scope, not exhaustive coverage.
 - Load, discover and export CSV/Parquet in both years, preserving source header
   names, with separate year-qualified caches, files, manifests and format checks.
   Cooperating exports for either year share the same output-directory lock.
@@ -17,7 +29,7 @@
   retain status and hash without blocking export. Mark unlabelled encodings as
   inferred, and refuse newer manifest schemas before identity/deletion advice.
 - Validate retained document hashes, reference/store shapes and table identity
-  before reading the source. Reject unreleased inline-document/old boundary
+  before reading the source. Reject unreleased inline-document
   formats; regenerate those local exports. Mark missing document text explicitly
   and restore availability when the same bytes are supplied again.
 - Unreadable advisory documents have null encoding and inference. Offline ABS

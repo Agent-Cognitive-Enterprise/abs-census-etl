@@ -70,6 +70,10 @@ def save_reference(reference, directory, *, year=2021, offline=False):
     people, age, identifier = reference
     url = f'https://www.abs.gov.au/census/find-census-data/quickstats/{year}/'+identifier
     path = directory/(identifier+'.html')
+    sidecar = path.with_suffix('.json')
+    if not offline:
+        require(not (path.exists() or path.is_symlink() or sidecar.exists() or sidecar.is_symlink()),
+                f'Refusing to overwrite reference capture: {path} or {sidecar}; use a fresh directory')
     if offline:
         require(path.is_file(), f'Missing saved QuickStats page: {path}; offline means no download')
         content = path.read_bytes()
@@ -89,7 +93,9 @@ def save_reference(reference, directory, *, year=2021, offline=False):
         response.raise_for_status()
         directory.mkdir(parents=True, exist_ok=True)
         content = response.content
-        path.write_bytes(content)
+        with path.open('xb') as output:
+            output.write(content)
+
     class Text(HTMLParser):
         def __init__(self):
             super().__init__()
@@ -111,12 +117,15 @@ def save_reference(reference, directory, *, year=2021, offline=False):
                 'file': path.name, 'sha256': hashlib.sha256(content).hexdigest(),
                 'people': people, 'median_age': age}
     if not offline:
-        path.with_suffix('.json').write_text(json.dumps(evidence, indent=2)+'\n', encoding='utf-8')
+        with sidecar.open('x', encoding='utf-8') as output:
+            output.write(json.dumps(evidence, indent=2)+'\n')
     return evidence
 
 
 def check_pack(geo, state, code, cache, out, *, reference=None, all_tables=False,
                reference_dir=None, year=2021, offline=False):
+    require(not (offline and reference is not None and reference_dir is None),
+            'Offline curated checks require --reference-dir with reviewed QuickStats captures')
     url = etl.datapack_url(geo, state, year=year)
     source = cache/Path(url).name
     require(not offline or source.is_file(), f'Missing offline pack: {source}; no download attempted')
@@ -209,6 +218,8 @@ def main(argv=None):
     parser.add_argument('--all-geographies', action='store_true',
                         help='Also check remaining supported geographies with source-cell checks')
     args = parser.parse_args(argv)
+    require(not args.offline or args.reference_dir is not None,
+            '--offline requires --reference-dir with reviewed QuickStats captures')
     selected_geos = None if args.geographies is None else {
         etl._validate_geography(g, 'NSW', year=args.year)[0] for g in args.geographies}
     references = REFERENCES_2016 if args.year == 2016 else REFERENCES_2021

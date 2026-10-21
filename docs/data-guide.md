@@ -111,6 +111,15 @@ This writes `2016_GCP_POA_NSW_G01_wide.csv`, the G04 CSV and the separate
 formats are checked within each vintage and all cooperating writers share its
 one output lock. No cross-year combined manifest is created.
 
+### Validation coverage
+
+Full 59-table payload parsing is recorded for 2016 NSW POA only. All 100
+geography/state combinations have archive identity/member-selection checks.
+Detailed 110-part headers/metadata and G01/G02/G04 source-cell checks cover the
+ten NSW geographies plus NT POA. This does not establish full payload coverage
+in every state or national AUS. An unexpected non-numeric cell in an untested
+table still raises; configured support does not imply exhaustive certification.
+
 ### Revision and boundary provenance
 
 New manifests add `manifest_schema_version: 1`; a missing version is legacy 1.
@@ -156,11 +165,13 @@ change document records the G14 recode and G36 rename when present in the pack.
 For legacy manifests, missing year, profile, covered data years and boundary
 fields are derived from the validated manifest identity and vintage definition.
 Revision facts and missing ZIP hashes stay unknown; they are never filled from
-the latest call's summary or another table's revision. Present values must equal
-that identity exactly, including every key of the `boundary` object; otherwise the
-manifest is refused before source access. Schema 1 therefore fixes the boundary
-object's contents: adding, removing or renaming a key or value requires a new
-manifest schema version, not an in-place schema 1 change.
+the latest call's summary or another table's revision. Present identity must match.
+For boundary objects, identifying keys are framework, edition, geography and
+source_code_column. Descriptive labels (structure, boundary_type, reference_date)
+are re-derived from the current vintage definition on each export, including
+retained tables. Correcting these labels does not invalidate the inventory or
+require a schema change. Contradictory identifying keys are still refused before
+source access.
 
 Version 0.2.0 can still update new 2021 manifests: it drops new top-level fields
 and fields on tables it re-exports, while retaining optional fields of untouched
@@ -259,6 +270,13 @@ names); it does not combine state files. This
 applies to every supported geography. Direct `find_members` and `combine_table` calls may omit
 `state` only when the requested table/parts belong to one state; mixed-state candidates
 require an explicit state, even when the geographic codes happen to match.
+
+Logical-table extraction (for example G04) requires every part declared by the
+metadata workbook. Missing metadata for a split table is an error. Explicit
+part requests such as G04A intentionally select only that part. find_members
+lists available filenames; it does not certify extraction completeness.
+Duplicate raw CSV headers, including whitespace variants, are refused before
+pandas can rename them.
 
 ## Supported geographies and discovery
 

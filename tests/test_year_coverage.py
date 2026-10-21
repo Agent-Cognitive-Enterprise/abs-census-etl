@@ -1263,6 +1263,78 @@ class YearCoverageTests(unittest.TestCase):
         self.assertEqual(manifest['tables']['G01']['writer_version'], 'unknown')
         self.assertNotIn('Traceback', result.stderr)
 
+    def test_missing_split_member_refused_for_both_years_and_direct_helpers(self):
+        for year, original in [(2016, self.old), (2021, self.new)]:
+            source = self.root/f'missing-{year}.zip'
+            with ZipFile(original) as archive:
+                members = {name: archive.read(name) for name in archive.namelist()
+                           if f'{year}Census_G04B_' not in name}
+            with ZipFile(source, 'w') as archive:
+                for name, body in members.items(): archive.writestr(name, body)
+            for table in ['G04', 'g04']:
+                with ZipFile(source) as archive:
+                    with self.assertRaisesRegex(ValueError, r"missing \[.G04B"):
+                        etl.combine_table(archive, table, 'POA', 'NSW', year=year)
+            with self.assertRaisesRegex(ValueError, 'G04B'):
+                etl.load_census(year=year, source_zip=source, table='G04')
+            out = self.root/f'out-{year}'
+            with self.assertRaisesRegex(ValueError, 'G04B'):
+                etl.export_census(year=year, source_zip=source, tables=['G04'], out=out)
+            self.assertFalse(list(out.glob('*.csv')))
+            self.assertFalse(list(out.glob('*manifest.json')))
+            result = subprocess.run([sys.executable, str(ROOT/'abs_census_etl.py'),
+                '--geo', 'POA', '--year', str(year), '--zip', str(source), '--tables', 'G04',
+                '--out', str(out)], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn('G04B', result.stderr)
+            self.assertNotIn('Traceback', result.stderr)
+
+    def test_boundary_labels_refresh_but_identity_conflicts_refuse(self):
+        out = self.root/'labels'
+        etl.export_census(source_zip=self.new, tables=['G01', 'G02'], out=out)
+        path = out/'2021_GCP_POA_NSW_manifest.json'
+        manifest = json.loads(path.read_text())
+        manifest['tables']['G02']['boundary'].update(
+            structure='old label', boundary_type='old type', reference_date='old guess')
+        path.write_text(json.dumps(manifest))
+        etl.export_census(source_zip=self.new, tables=['G01'], out=out)
+        current = json.loads(path.read_text())
+        self.assertEqual(current['tables']['G02']['boundary'], etl._boundary_details('POA', 2021),
+                         'descriptive boundary fields were not refreshed')
+        for key, value in [('framework', 'OTHER'), ('edition', 2), ('geography', 'SA1'),
+                           ('source_code_column', 'POA_CODE_2016')]:
+            manifest = json.loads(json.dumps(current))
+            manifest['tables']['G02']['boundary'][key] = value
+            path.write_text(json.dumps(manifest))
+            with patch.object(etl, 'ZipFile', side_effect=AssertionError('source accessed')):
+                with self.assertRaisesRegex(ValueError, 'contradicts boundary identity'):
+                    etl.export_census(source_zip=self.new, out=out)
+
+    def test_offline_checker_requires_explicit_reviewed_reference_directory(self):
+        import runpy
+        checks = runpy.run_path(str(ROOT/'tests/check_abs_data.py'))
+        with patch.object(etl.requests, 'get', side_effect=AssertionError('network')):
+            with self.assertRaisesRegex(RuntimeError, '--offline requires --reference-dir'):
+                checks['main'](['--offline'])
+
+    def test_online_capture_never_overwrites_html_or_sidecar(self):
+        import runpy
+        checks = runpy.run_path(str(ROOT/'tests/check_abs_data.py'))
+        for suffix in ['.html', '.json']:
+            folder = self.root/suffix[1:]
+            folder.mkdir()
+            existing = folder/('POA2000'+suffix)
+            existing.write_bytes(b'REVIEWED CAPTURE')
+            with patch.object(etl.requests, 'get', side_effect=AssertionError('network')):
+                with self.assertRaisesRegex(RuntimeError, 'Refusing to overwrite reference capture'):
+                    checks['save_reference']((27936, 32, 'POA2000'), folder)
+            self.assertEqual(existing.read_bytes(), b'REVIEWED CAPTURE')
+
+    def test_document_metadata_rejects_unwritten_documented_status(self):
+        with self.assertRaisesRegex(ValueError, 'encoding or status'):
+            etl._document_metadata({'encoding': 'ascii', 'encoding_inferred': False,
+                                     'status': 'documented'})
+
     def test_wrong_asgs_edition_is_refused_before_source(self):
         out = self.root / 'wrong-edition'
         etl.export_census(year=2016, source_zip=self.old, out=out)
@@ -1317,10 +1389,12 @@ class YearCoverageTests(unittest.TestCase):
         with patch.object(etl.requests, 'get', side_effect=AssertionError('network')):
             with self.assertRaisesRegex(RuntimeError, 'Missing offline pack'):
                 checks['main'](['--year', '2016', '--offline', '--geographies', 'POA',
-                                '--state', 'NSW', '--cache-dir', str(self.root/'absent')])
+                                '--state', 'NSW', '--cache-dir', str(self.root/'absent'),
+                                '--reference-dir', str(self.root)])
             with self.assertRaisesRegex(RuntimeError, 'No checks selected'):
                 checks['main'](['--year', '2016', '--offline', '--geographies', 'POA',
-                                '--state', 'OT', '--cache-dir', str(self.root)])
+                                '--state', 'OT', '--cache-dir', str(self.root),
+                                '--reference-dir', str(self.root)])
             page = self.root/'POA2000.html'
             page.write_text('<p>Area code POA2000 People 27,411 Male 50% Median age 30</p>')
             import hashlib
