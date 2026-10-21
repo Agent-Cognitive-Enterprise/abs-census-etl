@@ -1,0 +1,58 @@
+"""Offline runtime replay over genuine saved POA member lists, not payloads."""
+from pathlib import Path
+import hashlib
+import io
+import json
+import sys
+from zipfile import ZipFile
+
+sys.path.insert(0, str(Path.cwd()))
+sys.path.insert(0, str(Path('docs/research/slice11').resolve()))
+import abs_census_etl as etl
+from evidence import SavedRanges, load, verify_manifest
+
+prior = Path('docs/evidence/20261020-slice11')
+matrix = Path('docs/evidence/20261020-slice11-all-state')
+verify_manifest(prior, prior / 'manifest.json', 'f28c9925be9d821c2e3af628cc758816a642fdf8826b7fb6a0c8b9ca40789890')
+verify_manifest(matrix, matrix / 'manifest.json', 'd8ac1529c12e6a46508e0f012a58bde094504f4bf5ea6dd2ef0dbf1e769825f9')
+old = load(prior / 'ledger.json')
+new = load(matrix / 'ledger.json')
+cells = [c for c in load(matrix / 'matrix.json')['cells'] if c['geography'] == 'POA']
+assert len(cells) == 10 and {c['state'] for c in cells} == etl.VALID_STATES
+results = []
+for cell in cells:
+    state, url = cell['state'], cell['url']
+    if cell['evidence_origin'].startswith('offline reuse'):
+        if state == 'NSW':
+            stream = (prior / '2016_GCP_POA_for_NSW_short-header.zip').open('rb')
+        else:
+            stream = io.BufferedReader(SavedRanges(prior, old['requests'], url))
+    else:
+        stream = io.BufferedReader(SavedRanges(matrix, new['requests'], url))
+    with stream, ZipFile(stream) as archive:
+        etl._check_archive(archive, 2016, geo='POA')
+        tables = etl._available_table_ids(archive, 'POA', state, year=2016)
+        parts = [part for table in tables for part in
+                 etl.find_members(archive, table, 'POA', state, year=2016)]
+        assert len(tables) == 59 and len(parts) == len(set(parts)) == 110, state
+        assert set(parts) == {n for n in archive.namelist() if n.lower().endswith('.csv')}
+        for table in tables:
+            assert etl.find_members(archive, table, 'POA', year=2016) == etl.find_members(
+                archive, table, 'POA', state, year=2016), (state, table)
+        try:
+            etl._check_archive(archive, 2021, geo='POA')
+        except ValueError as error:
+            assert 'Wrong Census year' in str(error) and 'found 2016' in str(error)
+        else:
+            raise AssertionError(f'{state}: 2021 incorrectly accepted')
+    result = {'state': state, 'tables': len(tables), 'parts': len(parts),
+              'inferred_state_matches_all_tables': True, 'wrong_year_refused': True,
+              'evidence_origin': cell['evidence_origin'], 'url': url}
+    results.append(result)
+    print(f'PASS genuine 2016 POA {state}: 59 tables, 110 parts, state inference, wrong-year refusal',
+          flush=True)
+report = {'network_used': False, 'scope': 'identity and member selection; no missing payload reads',
+          'runtime_sha256': hashlib.sha256(Path('abs_census_etl.py').read_bytes()).hexdigest(),
+          'states': results}
+Path('docs/evidence/20261020-slice12-r1/all-state-poa-report.json').write_text(
+    json.dumps(report, indent=2) + '\n')

@@ -151,6 +151,37 @@ class DataFeatureTests(unittest.TestCase):
         self.base = Path(self.temp.name)
         self.source = make_pack(self.base/'source.zip')
 
+    def test_raw_duplicate_headers_refused_before_pandas(self):
+        for header in ['X,X', ' X ,X', '"X"," X "', 'Tot_P_P,Tot_P_P']:
+            with ZipFile(self.source) as archive:
+                members = {name: archive.read(name) for name in archive.namelist()}
+            name = next(name for name in members if 'Census_G01_' in name)
+            members[name] = f'POA_CODE_2021,{header}\nPOA2000,1,2\n'.encode()
+            with ZipFile(self.source, 'w') as archive:
+                for member, body in members.items(): archive.writestr(member, body)
+            with patch.object(etl.pd, 'read_csv', side_effect=AssertionError('pandas renamed headers')):
+                with self.assertRaisesRegex(ValueError, 'Duplicate column names.*G01'):
+                    etl.load_census(source_zip=self.source)
+
+    def test_raw_header_bom_and_distinct_suffix_names_load(self):
+        with ZipFile(self.source) as archive:
+            members = {name: archive.read(name) for name in archive.namelist()}
+        name = next(name for name in members if 'Census_G01_' in name)
+        for header, columns in [('﻿POA_CODE_2021,Tot_P_P', ['POA_CODE_2021', 'Tot_P_P']),
+                                ('POA_CODE_2021,X,X.1', ['POA_CODE_2021', 'X', 'X.1'])]:
+            values = ','.join(['POA2000'] + ['1'] * (len(columns) - 1))
+            members[name] = f'{header}\n{values}\n'.encode()
+            with ZipFile(self.source, 'w') as archive:
+                for member, body in members.items(): archive.writestr(member, body)
+            self.assertEqual(etl.load_census(source_zip=self.source).columns.tolist(), columns)
+
+    def test_split_table_absent_from_workbook_is_named(self):
+        variables = [row for row in VARIABLE_ROWS if len(row) < 5 or row[4] != 'G04']
+        source = make_pack(self.base/'undeclared.zip', metadata=workbook(variables=variables))
+        with self.assertRaisesRegex(ValueError, 'ABS metadata does not declare table G04'):
+            etl.load_census(source_zip=source, table='G04')
+        self.assertEqual(len(etl.load_census(source_zip=source, table='G01')), 1)
+
     def test_unexpected_numeric_tokens_rejected_with_context(self):
         for token in ['12a', '"1,234"', 'unknown', 'NaN', '#N/A', 'inf', '-Infinity', '1e999']:
             with self.subTest(token=token):
@@ -312,7 +343,7 @@ class DataFeatureTests(unittest.TestCase):
         out = self.base/'existing'
         etl.export_census(source_zip=self.source, out=out)
         before = {p.name: p.read_bytes() for p in out.iterdir()}
-        with patch.object(etl, 'combine_table', side_effect=EOFError('truncated member')):
+        with patch.object(etl, 'load_csv', side_effect=EOFError('truncated member')):
             with self.assertRaisesRegex(BadZipFile, 'source.zip.*truncated member.*Move it aside'):
                 etl.export_census(source_zip=self.source, out=out)
         self.assertEqual(before, {p.name: p.read_bytes() for p in out.iterdir()})
@@ -494,7 +525,7 @@ class DataFeatureTests(unittest.TestCase):
         with ZipFile(self.source, 'w') as z:
             for name, content in members.items():
                 z.writestr(name, content)
-        with self.assertRaisesRegex(ValueError, 'no 2021'):
+        with self.assertRaisesRegex(ValueError, 'Mixed Census years.*2016.*2021'):
             etl.list_census_tables(source_zip=self.source)
 
     def test_discovery_cli_and_invalid_search_before_source(self):

@@ -1,0 +1,50 @@
+"""Offline consistency check for retained slice 11 evidence (no downloads)."""
+from pathlib import Path
+import hashlib
+import json
+
+root = Path(__file__).resolve().parent
+ledger = json.loads((root / 'ledger.json').read_text())
+received = 0
+for entry in ledger['requests']:
+    path = root / entry['file']
+    content = path.read_bytes()
+    if len(content) != entry['bytes_received']:
+        raise RuntimeError(f'Response length differs: {path.name}')
+    received += len(content)
+    if entry.get('sha256') and hashlib.sha256(content).hexdigest() != entry['sha256']:
+        raise RuntimeError(f'Response hash differs: {path.name}')
+if received != ledger['bytes_received'] or received > ledger['limit_bytes']:
+    raise RuntimeError('Download ledger total or budget differs')
+results = json.loads((root / 'results.json').read_text())
+expected = {
+    'POA': 'POA_CODE_2016', 'SA1': 'SA1_7DIGITCODE_2016',
+    'SA2': 'SA2_MAINCODE_2016', 'LGA': 'LGA_CODE_2016',
+    'SSC': 'SSC_CODE_2016', 'SA3': 'SA3_CODE_2016',
+    'SA4': 'SA4_CODE_2016', 'SED': 'SED_CODE_2016',
+    'CED': 'CED_CODE_2016', 'STE': 'STE_CODE_2016',
+}
+for item in results:
+    if item.get('error') or item['code_column'] != expected[item['geography']]:
+        raise RuntimeError(f'Header observation failed: {item}')
+    if item['csv_parts'] != 110:
+        raise RuntimeError('Unexpected observed part inventory')
+poa = results[0]
+if (poa['logical_tables'], poa['variables'], poa['header_mismatches']) != (59, 15535, []):
+    raise RuntimeError('POA metadata inspection differs')
+local = root / '2016_GCP_POA_for_NSW_short-header.zip'
+if local.stat().st_size != 12355004 or hashlib.sha256(local.read_bytes()).hexdigest() != poa['zip_sha256']:
+    raise RuntimeError('Copied source ZIP differs')
+other = json.loads((root / 'other-profile.json').read_text())
+if 'Metadata/Metadata_2021_IP_DataPack_R1_R2.xlsx' not in other['metadata']:
+    raise RuntimeError('Missing genuine second-profile metadata')
+references = json.loads((root / 'references.json').read_text())
+values = [(r.get('people'), r.get('median_age')) for r in references]
+if values != [(27411, 30), (6464, 32), (3872, 49), (208374, 32)]:
+    raise RuntimeError('Independent QuickStats observations differ')
+cells = json.loads((root / 'local-poa-reference-cells.json').read_text())
+if (int(cells['G01']['POA2000']['Tot_P_P']), int(cells['G02']['POA2000']['Median_age_persons'])) != values[0]:
+    raise RuntimeError('POA source cells differ from independent QuickStats')
+print(f'PASS: {len(results)} archive observations; all 10 geography headers; POA 110 headers')
+print(f'PASS: 4 saved independent references; POA2000 source population/age agree')
+print(f'PASS: {len(ledger["requests"])} saved HTTP responses, {received} bytes < {ledger["limit_bytes"]}')

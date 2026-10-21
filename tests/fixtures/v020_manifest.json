@@ -1,0 +1,53 @@
+{
+  "generator": "tests/check_compat.py --write-fixture PATH",
+  "old_tag": "v0.2.0",
+  "old_module_sha256": "31ebf8a3d553fca8e81761ffceded416178a547ec684d5ca978841e93a795869",
+  "normalization": "Disposable absolute source root replaced by __FIXTURE_ROOT__ only",
+  "manifest": {
+    "source": "__FIXTURE_ROOT__/first.zip",
+    "source_url": null,
+    "source_path_kind": "absolute",
+    "file_format": "csv",
+    "manifest_scope": "latest_export_per_table",
+    "source_sha256": "594e7cefa6709aaf841d029f7c9dc2333815ead3417f550836148e22a2b0207a",
+    "census_year": 2021,
+    "asgs_edition": 3,
+    "geography": "POA",
+    "state": "NSW",
+    "created_utc": "2026-10-20T22:43:13.660954+00:00",
+    "tables": {
+      "G01": {
+        "file": "2021_GCP_POA_NSW_G01_wide.csv",
+        "areas": 2,
+        "rows": 2,
+        "columns": [
+          "POA_CODE_2021",
+          "Tot_P_P"
+        ],
+        "source": "__FIXTURE_ROOT__/first.zip",
+        "source_url": null,
+        "source_path_kind": "absolute",
+        "source_sha256": "594e7cefa6709aaf841d029f7c9dc2333815ead3417f550836148e22a2b0207a",
+        "created_utc": "2026-10-20T22:43:13.660954+00:00",
+        "file_format": "csv",
+        "shape": "wide"
+      },
+      "G02": {
+        "file": "2021_GCP_POA_NSW_G02_wide.csv",
+        "areas": 2,
+        "rows": 2,
+        "columns": [
+          "POA_CODE_2021",
+          "Median_age_persons"
+        ],
+        "source": "__FIXTURE_ROOT__/first.zip",
+        "source_url": null,
+        "source_path_kind": "absolute",
+        "source_sha256": "594e7cefa6709aaf841d029f7c9dc2333815ead3417f550836148e22a2b0207a",
+        "created_utc": "2026-10-20T22:43:13.660954+00:00",
+        "file_format": "csv",
+        "shape": "wide"
+      }
+    }
+  }
+}

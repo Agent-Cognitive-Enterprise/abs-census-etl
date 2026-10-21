@@ -1,0 +1,219 @@
+"""Slice 11 evidence probe. No application source or source ZIP is modified.
+HTTP response bodies, including failed requests, count against a persistent cap.
+"""
+from pathlib import Path
+import csv
+from datetime import datetime, timezone
+import hashlib
+import io
+import json
+import re
+import shutil
+import sys
+from zipfile import ZipFile
+
+import requests
+
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
+import abs_census_etl as etl
+
+OUT = Path(__file__).resolve().parent
+BASE = 'https://www.abs.gov.au/census/find-census-data/datapacks/download/'
+CAP = 250 * 1024 * 1024
+LEDGER = OUT / 'ledger.json'
+ledger = json.loads(LEDGER.read_text()) if LEDGER.exists() else {'limit_bytes': CAP, 'bytes_received': 0, 'requests': []}
+session = requests.Session()
+session.headers.update({'User-Agent': 'abs-census-etl-slice11-source-inspection', 'Accept-Encoding': 'identity'})
+
+
+def now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def save_json(path, value):
+    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+
+
+def fetch(url, *, start=None, end=None):
+    number = len(ledger['requests'])
+    headers = {} if start is None else {'Range': f'bytes={start}-{end}'}
+    entry = {'url': url, 'requested_range': headers.get('Range'), 'utc': now(), 'bytes_received': 0}
+    ledger['requests'].append(entry)
+    raw = OUT / 'responses' / f'{number:04d}.bin'
+    raw.parent.mkdir(exist_ok=True)
+    try:
+        with session.get(url, headers=headers, timeout=(15, 35), stream=True) as response:
+            entry.update(status=response.status_code, headers=dict(response.headers), file=str(raw.relative_to(OUT)))
+            with raw.open('wb') as f:
+                for chunk in response.iter_content(16384):
+                    ledger['bytes_received'] += len(chunk)
+                    entry['bytes_received'] += len(chunk)
+                    f.write(chunk)
+                    if ledger['bytes_received'] > CAP:
+                        raise RuntimeError('Download budget exceeded; stop investigation')
+                    # Never consume an ignored Range as a whole large archive.
+                    if start is not None and entry['bytes_received'] > end - start + 1:
+                        raise RuntimeError('Server ignored bounded range; request stopped')
+            data = raw.read_bytes()
+            entry['sha256'] = hashlib.sha256(data).hexdigest()
+            if start is not None and response.status_code == 206:
+                match = re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)', response.headers.get('Content-Range', ''))
+                if not match or tuple(map(int, match.group(1, 2))) != (start, end) or len(data) != end - start + 1:
+                    raise RuntimeError('Unexpected Content-Range or response length')
+            return response.status_code, response.headers, data
+    except Exception as exc:
+        entry['error'] = f'{type(exc).__name__}: {exc}'
+        raise
+    finally:
+        save_json(LEDGER, ledger)
+
+
+class Remote(io.RawIOBase):
+    BLOCK = 65536
+
+    def __init__(self, url):
+        self.url, self.pos, self.blocks = url, 0, {}
+        status, headers, _ = fetch(url, start=0, end=0)
+        if status != 206:
+            raise RuntimeError(f'Expected range support, got HTTP {status}: {url}')
+        self.size = int(headers['Content-Range'].split('/')[-1])
+
+    def readable(self): return True
+    def seekable(self): return True
+    def tell(self): return self.pos
+
+    def seek(self, offset, whence=0):
+        self.pos = offset + (0 if whence == 0 else self.pos if whence == 1 else self.size)
+        if self.pos < 0: raise ValueError('Negative position')
+        return self.pos
+
+    def readinto(self, target):
+        count = min(len(target), max(0, self.size - self.pos))
+        done = 0
+        while done < count:
+            block = self.pos // self.BLOCK
+            if block not in self.blocks:
+                start = block * self.BLOCK
+                end = min(start + self.BLOCK, self.size) - 1
+                status, _, body = fetch(self.url, start=start, end=end)
+                if status != 206: raise RuntimeError(f'Range failed: HTTP {status}')
+                self.blocks[block] = body
+            offset = self.pos % self.BLOCK
+            chunk = self.blocks[block][offset:offset + count - done]
+            target[done:done + len(chunk)] = chunk
+            done += len(chunk)
+            self.pos += len(chunk)
+        return count
+
+
+def inspect_archive(archive, geo, state, year, url, *, full_hash=None):
+    names = archive.namelist()
+    members = [n for n in names if re.search(rf'{year}Census_G\d\d[A-Z]?_{state}_{geo}\.csv$', n, re.I)]
+    member = next(n for n in members if f'_{"G01"}_' in n)
+    with archive.open(member) as f:
+        reader = csv.reader(io.TextIOWrapper(f, encoding='utf-8-sig'))
+        header = next(reader)
+        sample = [next(reader)[0] for _ in range(3)]
+    metadata = [n for n in names if re.search(r'Metadata_.*DataPack.*\.xlsx$', n, re.I)]
+    changes = {}
+    docs = {}
+    folder = OUT / f'{year}-{geo}-{state}'
+    folder.mkdir(exist_ok=True)
+    for name in names:
+        if name.lower().endswith('.txt') and ('readme' in name.lower()):
+            body = archive.read(name)
+            if len(body) > 200000: raise RuntimeError('Unexpectedly large readme')
+            (folder / Path(name).name).write_bytes(body)
+            docs[name] = {'sha256': hashlib.sha256(body).hexdigest(), 'text': body.decode('utf-8-sig', errors='replace')}
+            if 'changes' in name.lower(): changes[name] = docs[name]
+    info = {'year': year, 'profile': 'GCP', 'geography': geo, 'state': state, 'url': url,
+            'evidence': 'full local archive' if full_hash else 'HTTP ranges only; no complete ZIP hash',
+            'zip_sha256': full_hash, 'g01_member': member, 'code_column': header[0],
+            'sample_codes': sample, 'csv_parts': len(members), 'metadata_members': metadata,
+            'readme': docs, 'changes': changes}
+    save_json(folder / 'observations.json', info)
+    print(f'{geo}/{state}: {header[0]}, samples={sample}, parts={len(members)}', flush=True)
+    return info
+
+
+def local_poa():
+    path = OUT / '2016_GCP_POA_for_NSW_short-header.zip'
+    if not path.exists():
+        source = Path('/tmp/claude-1000/-home-user-PycharmProjects-abs-census-etl/f19f1401-7d89-471c-bd05-bf438c771fed/scratchpad/dl2016') / path.name
+        shutil.copyfile(source, path)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    if digest != 'b25e824ccd63ed03d07d5e40d486e8a4530f4e3147bccfc07f336cd24a189dba':
+        raise RuntimeError('Copied POA evidence hash differs')
+    with ZipFile(path) as archive:
+        info = inspect_archive(archive, 'POA', 'NSW', 2016, BASE + path.name, full_hash=digest)
+        metadata = archive.read(info['metadata_members'][0])
+        (OUT / 'Metadata_2016_GCP_DataPack.xlsx').write_bytes(metadata)
+        # Inspection adapter only: normalize observed sheet capitalization and
+        # wrap under the 2021 name to exercise existing metadata validation.
+        # This is not an unmodified production 2016 reader test.
+        adjusted = io.BytesIO()
+        with ZipFile(io.BytesIO(metadata)) as original, ZipFile(adjusted, 'w') as output:
+            for name in original.namelist():
+                data = original.read(name)
+                if name == 'xl/workbook.xml':
+                    data = data.replace(b'Table number, name, population', b'Table Number, Name, Population')
+                    data = data.replace(b'Cell descriptors information', b'Cell Descriptors Information')
+                output.writestr(name, data)
+        wrapper = io.BytesIO()
+        with ZipFile(wrapper, 'w') as output:
+            output.writestr('Metadata/Metadata_2021_GCP_DataPack.xlsx', adjusted.getvalue())
+        with ZipFile(wrapper) as book:
+            tables, variables = etl._read_metadata(book)
+        mismatches = []
+        for member in archive.namelist():
+            match = re.search(r'2016Census_(G\d\d[A-Z]?)_NSW_POA\.csv$', member)
+            if not match: continue
+            with archive.open(member) as f:
+                header = next(csv.reader(io.TextIOWrapper(f, encoding='utf-8-sig')))
+            expected = set(header[1:])
+            found = set(variables.loc[variables.datapack_table.eq(match[1]), 'variable'])
+            if expected != found: mismatches.append(match[1])
+        if mismatches: raise RuntimeError(f'Metadata/header differences: {mismatches}')
+        info.update(metadata_sha256=hashlib.sha256(metadata).hexdigest(), logical_tables=len(tables),
+                    variables=len(variables), header_mismatches=mismatches,
+                    metadata_validation='inspection-only sheet/name adapter, unchanged production validator')
+        save_json(OUT / '2016-POA-NSW' / 'observations.json', info)
+        print(f'POA metadata: {len(tables)} tables, {len(variables)} variables, all headers match', flush=True)
+    return info
+
+
+def main():
+    results = [local_poa()]
+    for geo, state in [('SA1', 'NSW'), ('SA2', 'NSW'), ('LGA', 'NSW'), ('SSC', 'NSW'),
+                       ('POA', 'NT'), ('POA', 'AUS'), ('SA3', 'NSW'), ('SA4', 'NSW'),
+                       ('SED', 'NSW'), ('CED', 'NSW'), ('STE', 'AUS')]:
+        url = BASE + f'2016_GCP_{geo}_for_{state}_short-header.zip'
+        try:
+            remote = Remote(url)
+            with ZipFile(io.BufferedReader(remote)) as archive:
+                item = inspect_archive(archive, geo, state, 2016, url)
+                item['archive_size'] = remote.size
+                results.append(item)
+        except Exception as exc:
+            results.append({'geography': geo, 'state': state, 'url': url, 'error': f'{type(exc).__name__}: {exc}'})
+            print(f'{geo}/{state}: ERROR {exc}', flush=True)
+        save_json(OUT / 'results.json', results)
+    for profile, geo in [('WPP', 'DZN'), ('IPP', 'LGA')]:
+        url = BASE + f'2021_{profile}_{geo}_for_NSW_short-header.zip'
+        try:
+            with ZipFile(io.BufferedReader(Remote(url))) as archive:
+                members = archive.namelist()
+                item = {'url': url, 'members': members,
+                        'metadata': [n for n in members if 'Metadata_' in n],
+                        'csv_examples': [n for n in members if n.lower().endswith('.csv')][:3]}
+                save_json(OUT / 'other-profile.json', item)
+                print('OTHER PROFILE', json.dumps(item['csv_examples']), item['metadata'], flush=True)
+                break
+        except Exception as exc:
+            print(f'{profile}: {exc}', flush=True)
+    save_json(OUT / 'results.json', results)
+    print('BODY BYTES', ledger['bytes_received'], 'of', CAP, flush=True)
+
+
+if __name__ == '__main__': main()

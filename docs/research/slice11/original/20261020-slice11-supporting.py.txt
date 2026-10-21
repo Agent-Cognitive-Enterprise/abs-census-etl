@@ -1,0 +1,44 @@
+"""Retained supplementary acquisition probe; shares the fresh 128 MiB cap."""
+from pathlib import Path
+import hashlib
+import json
+import sys
+sys.path.insert(0, str(Path('docs/research/slice11').resolve()))
+from matrix import HTTP, LIMIT, save
+from evidence import create_manifest, Text
+import re
+
+main = Path('docs/evidence/20261020-slice11-all-state')
+spent = json.loads((main/'ledger.json').read_text())['bytes_received']
+output = Path('docs/evidence/20261020-slice11-all-state-supporting')
+output.mkdir(exist_ok=False)
+http = HTTP(output, limit=LIMIT-spent)
+records=[]
+for identifier in ['POA0810','POA2010']:
+    url='https://www.abs.gov.au/census/find-census-data/quickstats/2016/'+identifier
+    _,body=http.get(url)
+    (output/(identifier+'.html')).write_bytes(body)
+    parser=Text();parser.feed(body.decode('utf-8'))
+    text=re.sub(r'\s+', ' ', ' '.join(parser.parts))
+    position=text.find('Area code')
+    if position<0: raise RuntimeError('Missing saved summary '+identifier)
+    match=re.search(r'\bPeople\s+([0-9,]+)\s+Male.*?\bMedian age\s+([0-9]+)\b',text[position:])
+    if not match: raise RuntimeError('Cannot parse saved summary '+identifier)
+    records.append({'identifier':identifier,'url':url,'sha256':hashlib.sha256(body).hexdigest(),
+                    'people':int(match[1].replace(',','')),'median_age':int(match[2])})
+    print(records[-1],flush=True)
+url='https://www.abs.gov.au/ausstats/abs@.nsf/Lookup/1270.0.55.001main+features1July%202016'
+try:
+    _,body=http.get(url)
+    (output/'asgs-july-2016.html').write_bytes(body)
+    parser=Text();parser.feed(body.decode('utf-8'))
+    text=re.sub(r'\s+', ' ', ' '.join(parser.parts))
+    records.append({'url':url,'sha256':hashlib.sha256(body).hexdigest(),
+                    'title_evidence':text[:2200]})
+    print('ASGS',text[:1000],flush=True)
+except Exception as e:
+    records.append({'url':url,'error':str(e)})
+save(output/'report.json',{'records':records,'main_phase_bytes':spent,
+    'supporting_bytes':http.ledger['bytes_received'],
+    'combined_bytes':spent+http.ledger['bytes_received'],'approved_cap_bytes':LIMIT})
+create_manifest(output,output/'manifest.json')

@@ -1,0 +1,204 @@
+"""Bounded 2016 source checks and offline replay; see README alongside this file."""
+from __future__ import annotations
+
+import argparse
+from concurrent.futures import ThreadPoolExecutor
+import csv
+import hashlib
+import io
+import json
+from pathlib import Path
+import sys
+from zipfile import ZipFile
+
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT/'docs/research/slice11'))
+import abs_census_etl as etl
+from evidence import SavedRanges, create_manifest, verify_manifest, require
+from matrix import HTTP, Remote
+
+PRIOR = ROOT/'docs/evidence/20261020-slice11'
+MATRIX = ROOT/'docs/evidence/20261020-slice11-all-state'
+PRIOR_HASH = 'f28c9925be9d821c2e3af628cc758816a642fdf8826b7fb6a0c8b9ca40789890'
+MATRIX_HASH = 'd8ac1529c12e6a46508e0f012a58bde094504f4bf5ea6dd2ef0dbf1e769825f9'
+CAP = 128 * 1024 * 1024
+COLUMNS = {'POA': 'POA_CODE_2016', 'SA1': 'SA1_7DIGITCODE_2016',
+           'SA2': 'SA2_MAINCODE_2016', **{g: f'{g}_CODE_2016'
+           for g in ['SA3', 'SA4', 'LGA', 'SED', 'CED', 'SSC', 'STE']}}
+REFERENCES = {('POA', 'NT'): ('POA0800', 6464, 32),
+              ('SA2', 'NSW'): ('101021007', 3872, 49),
+              ('LGA', 'NSW'): ('LGA17200', 208374, 32)}
+
+
+def read(path):
+    return json.loads(path.read_text(encoding='utf-8'))
+
+
+class EvidenceRemote(Remote):
+    BLOCK = 8192
+    def __init__(self, providers, *, http=None, url=None):
+        self.providers, self.http, self.url = providers, http, url
+        require(bool(providers) and len({p.size for p in providers}) == 1, 'Source sizes differ')
+        self.size, self.pos, self.blocks = providers[0].size, 0, {}
+
+    def readinto(self, target):
+        count = min(len(target), max(0, self.size-self.pos))
+        done = 0
+        while done < count:
+            key = self.pos // self.BLOCK
+            if key not in self.blocks:
+                start, end = key*self.BLOCK, min((key+1)*self.BLOCK, self.size)-1
+                body = None
+                for provider in self.providers:
+                    try:
+                        provider.seek(start)
+                        body = provider.read(end-start+1)
+                    except ValueError:
+                        continue
+                    break
+                if body is None:
+                    require(self.http is not None, f'Unrecorded source block: {self.url}/{start}')
+                    headers, body = self.http.get(self.url, start=start, end=end)
+                    require(int(headers['Content-Range'].split('/')[-1]) == self.size,
+                            'Archive changed since the structural survey')
+                require(len(body) == end-start+1, 'Incomplete archive block')
+                self.blocks[key] = body
+            offset = self.pos % self.BLOCK
+            chunk = self.blocks[key][offset:offset+count-done]
+            target[done:done+len(chunk)] = chunk
+            self.pos += len(chunk)
+            done += len(chunk)
+        return count
+
+
+def check_stream(stream, geo, state):
+    column = COLUMNS[geo]
+    with ZipFile(stream) as archive:
+        etl._check_archive(archive, 2016, geo=geo)
+        tables, variables = etl._read_metadata(archive, year=2016)
+        available = etl._available_table_ids(archive, geo, state, year=2016)
+        require(len(tables) == len(available) == 59 and len(variables) == 15535,
+                f'{geo}/{state}: metadata inventory differs')
+        count = 0
+        for table in available:
+            for member in etl.find_members(archive, table, geo, state, year=2016):
+                with archive.open(member) as source:
+                    header = next(csv.reader(io.TextIOWrapper(source, encoding='utf-8-sig')))
+                part = Path(member).name.split('_')[1]
+                expected = set(variables.loc[variables['datapack_table'].eq(part), 'variable'])
+                require(header[0] == column and set(header[1:]) == expected,
+                        f'{geo}/{state}/{part}: actual CSV header differs from workbook')
+                count += 1
+        require(count == 110, f'{geo}/{state}: missing data parts')
+        member = etl.find_members(archive, 'G01', geo, state, year=2016)[0]
+        with archive.open(member) as source:
+            first = next(csv.DictReader(io.TextIOWrapper(source, encoding='utf-8-sig')))[column]
+        revision = etl._source_revision(archive)
+    reference = REFERENCES.get((geo, state))
+    code = reference[0] if reference else first
+    data = etl._read_tables_from_zip(source=stream, geo=geo, state=state, year=2016,
+                                    tables=['G01', 'G02', 'G04'], codes=[code], keep=None, long=False)
+    if reference:
+        require(int(data['G01'].iloc[0]['Tot_P_P']) == reference[1], 'Population reference differs')
+        require(int(data['G02'].iloc[0]['Median_age_persons']) == reference[2], 'Median-age reference differs')
+    member_hashes = {}
+    with ZipFile(stream) as archive:
+        for table in ['G01', 'G02', 'G04']:
+            for member in etl.find_members(archive, table, geo, state, year=2016):
+                with archive.open(member) as source:
+                    member_hashes[member] = hashlib.file_digest(source, 'sha256').hexdigest()
+        for member in etl.find_members(archive, 'G04', geo, state, year=2016):
+            with archive.open(member) as source:
+                raw = next(row for row in csv.DictReader(io.TextIOWrapper(source, encoding='utf-8-sig'))
+                           if row[column] == code)
+            for name, value in raw.items():
+                if name == column:
+                    continue
+                actual = data['G04'].iloc[0][name]
+                require(etl.pd.isna(actual) if value.strip().lower() in etl.MISSING
+                        else actual == float(value), f'G04 source fidelity mismatch: {geo}/{name}')
+    return {'geography': geo, 'state': state, 'code_column': column, 'code': code,
+            'tables': len(available), 'variables': len(variables), 'headers_matched': count,
+            'loaded_tables': ['G01', 'G02', 'G04'], 'validated_member_sha256': member_hashes,
+            'reference': reference, 'source_revision': revision,
+            'full_zip_sha256': None}
+
+
+def execute(root, *, acquire):
+    verify_manifest(PRIOR, PRIOR/'manifest.json', PRIOR_HASH)
+    verify_manifest(MATRIX, MATRIX/'manifest.json', MATRIX_HASH)
+    old, matrix = read(PRIOR/'ledger.json')['requests'], read(MATRIX/'ledger.json')['requests']
+    cells = {(c['geography'], c['state']): c for c in read(MATRIX/'matrix.json')['cells']}
+    jobs = [(g, 'NSW') for g in COLUMNS if g != 'POA'] + [('POA', 'NT')]
+    limits = {pair: (40 if pair[0] == 'SA1' else 8)*1024*1024 for pair in jobs}
+    require(sum(limits.values()) <= CAP, 'Per-source caps exceed approval')
+    if acquire:
+        require(not root.exists(), 'Output already exists; do not overwrite evidence')
+        root.mkdir(parents=True)
+    def work(pair):
+        geo, state = pair
+        cell = cells[pair]
+        origin = PRIOR if cell['evidence_origin'].startswith('offline reuse') else MATRIX
+        entries = old if origin == PRIOR else matrix
+        providers = [SavedRanges(origin, entries, cell['url'])]
+        folder = root/f'{geo}-{state}'
+        if acquire:
+            folder.mkdir()
+            http = HTTP(folder, limit=limits[pair])
+        else:
+            http = None
+            ledger = read(folder/'ledger.json')
+            require(ledger['limit_bytes'] == limits[pair], 'Ledger cap differs')
+            total = 0
+            for entry in ledger['requests']:
+                body = folder/entry['file']
+                require(body.stat().st_size == entry['bytes_received'] and
+                        hashlib.sha256(body.read_bytes()).hexdigest() == entry['sha256'],
+                        'Ledger response differs')
+                total += entry['bytes_received']
+            require(total == ledger['bytes_received'] <= limits[pair], 'Ledger budget differs')
+            if any(e.get('status') == 206 for e in ledger['requests']):
+                providers.insert(0, SavedRanges(folder, ledger['requests'], cell['url']))
+        with io.BufferedReader(EvidenceRemote(providers, http=http, url=cell['url']), buffer_size=8192) as stream:
+            result = check_stream(stream, geo, state)
+        result['new_response_body_bytes'] = read(folder/'ledger.json')['bytes_received']
+        result['source_url'] = cell['url']
+        print(f'PASS genuine 2016 {geo}/{state}: 110 headers, 15535 variables, G01/G02/G04 fidelity', flush=True)
+        return result
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(work, jobs))
+    with (PRIOR/'2016_GCP_POA_for_NSW_short-header.zip').open('rb') as stream:
+        result = check_stream(stream, 'POA', 'NSW')
+    result['full_zip_sha256'] = hashlib.sha256((PRIOR/'2016_GCP_POA_for_NSW_short-header.zip').read_bytes()).hexdigest()
+    results.append(result)
+    total = sum(r.get('new_response_body_bytes', 0) for r in results)
+    require(total <= CAP, 'Total approved cap exceeded')
+    report = {'runtime_sha256': hashlib.sha256((ROOT/'abs_census_etl.py').read_bytes()).hexdigest(),
+              'new_response_body_bytes': total, 'approved_cap_bytes': CAP,
+              'scope': 'all ten NSW geography header inventories plus NT POA; selected full member fidelity',
+              'results': results}
+    if acquire:
+        (root/'report.json').write_text(json.dumps(report, indent=2)+'\n', encoding='utf-8')
+        create_manifest(root, root/'manifest.json')
+    else:
+        require(report == read(root/'report.json'), 'Replayed report differs; includes runtime hash')
+    return report
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--acquire', type=Path)
+    group.add_argument('--verify', type=Path)
+    parser.add_argument('--expect-sha256')
+    args = parser.parse_args()
+    if args.verify:
+        require(args.expect_sha256 is not None, 'Verification requires external manifest hash')
+        verify_manifest(args.verify, args.verify/'manifest.json', args.expect_sha256)
+    result = execute(args.acquire or args.verify, acquire=args.acquire is not None)
+    print('PASS:', result['new_response_body_bytes'], 'new response bytes; cap', CAP)
+
+
+if __name__ == '__main__':
+    main()
