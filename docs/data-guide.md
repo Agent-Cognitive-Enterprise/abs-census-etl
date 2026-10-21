@@ -5,21 +5,23 @@ need the app installed in your Python 3.14 environment, using the
 [direct module install](../README.md#install-as-a-python-module) or
 [source setup](../README.md#setup).
 
-This guide covers version 0.2.0, including searchable metadata and ten supported
-2021 geographies. Users of 0.1.0 should update before using the new APIs.
-The unreleased source also supports explicit 2016 POA loading/discovery as below;
-that functionality is not in the published 0.2.0 wheel or managed installation.
+This guide covers the latest published release, 0.2.0, including searchable
+metadata and ten supported 2021 geographies. Users of 0.1.0 should update before
+using the new APIs. It also covers the unreleased development version 0.3.0.dev0
+in this checkout, which adds 2016 GCP loading/discovery/export, year-qualified
+manifests and revision/boundary provenance as below. Those additions are not in
+the published 0.2.0 wheel, source archive or managed installation.
 
 ## Selecting a Census year (unreleased source)
 
-`year` is a keyword on loading, table listing and variable description. It must
+`year` is a keyword on loading, exports, table listing and variable description. It must
 be an integer 2016 or 2021; floats, booleans and strings are rejected. The CLI uses
 `--year 2016` or `--year 2021`. The default stays **2021** for compatibility.
 
 | Year | Current geography support | Operations |
 | --- | --- | --- |
 | 2021 (default) | POA, SA1–SA4, LGA, SED, CED, STE, SAL | Load, discover, CSV/Parquet export |
-| 2016 (explicit) | POA in all states/territories and AUS | Load and discover only |
+| 2016 (explicit) | POA, SA1–SA4, LGA, SED, CED, STE, SSC | Load, discover, CSV/Parquet export |
 
 For 2016 POA, use the same Python API with an explicit year:
 
@@ -46,10 +48,10 @@ Omit `source_zip` / `--zip` to download the selected year's pack into its own
 cache filename. Returned wide and long data retain `POA_CODE_2016` or
 `POA_CODE_2021`, including source prefixes or bare leading zeros. Code filters,
 column selection, split-table integrity and strict numeric parsing apply to both.
-`--list-columns` also supports 2016. `export_census(year=2016)` and ordinary CLI
-2016 exports currently fail before source access or output-folder creation;
-2016 exports are a later increment. Other 2016 geographies, including SSC, fail
-early too. The public `GEOGRAPHIES`, `VALID_GEOS` and `MEMBER_RE` constants retain
+`--list-columns` and `export_census(year=2016)` support the same year/geography
+selection. Every listed geography supports NSW, VIC, QLD, SA, WA, TAS, NT, ACT,
+OT and national AUS. SAL/2016 and SSC/2021 fail before source access; they are
+separate classifications and are never translated. The public `GEOGRAPHIES`, `VALID_GEOS` and `MEMBER_RE` constants retain
 their original 2021 meanings; use the APIs for requested-year validation.
 
 Wrong-year archives report the year found and suggest explicit year selection
@@ -74,6 +76,112 @@ The national 2016 POA pack uses AUS in CSV names; 2021 uses AUST. National
 no-usual-address/migratory codes POA9494/POA9797 are in the 2016 OT pack; asking
 for them from a NSW pack raises unmatched-code errors. This increment does not
 support Time Series Profiles, historical joins or SSC/SAL conversions.
+
+## Census years and geography
+
+This section and its provenance subsection describe development version
+0.3.0.dev0; published 0.2.0 supports 2021 only and writes no schema version.
+The default remains 2021; a later Census will not silently change it. Use an
+explicit `year=2016` / `--year 2016` for the original 2016 GCP. Both vintages
+support POA, SA1, SA2, SA3, SA4, LGA, SED, CED and STE; 2016 adds SSC and 2021
+adds SAL. SSC and SAL are not interchangeable. The public GEOGRAPHIES,
+VALID_GEOS and MEMBER_RE constants keep their original 2021 meanings.
+
+| Geography | 2016 source code column | 2021 source code column |
+| --- | --- | --- |
+| SA1 | SA1_7DIGITCODE_2016 (7 digits) | SA1_CODE_2021 (11 digits) |
+| SA2 | SA2_MAINCODE_2016 | SA2_CODE_2021 |
+| SSC / SAL | SSC_CODE_2016 | SAL_CODE_2021 |
+| Other supported geographies | GEO_CODE_2016 | GEO_CODE_2021 |
+
+Wide/long DataFrames and CSV/Parquet files retain these source column names and
+code strings. An 11-digit SA1 identifier requested in 2016 is unmatched, never
+truncated or translated. Case/whitespace normalization and strict partial-match
+refusal apply to both years. Even equal-looking codes may identify different
+boundaries, and similarly named variables may have changed definitions. Do not
+merge years as if identifiers or measures were automatically comparable.
+
+```sh
+.venv/bin/abs-census-etl --year 2016 --geo POA --state NSW --tables G01 G04 \
+  --codes 2000 2010 --zip 2016_GCP_POA_for_NSW_short-header.zip --out abs_2016
+```
+
+This writes `2016_GCP_POA_NSW_G01_wide.csv`, the G04 CSV and the separate
+`2016_GCP_POA_NSW_manifest.json`. A 2021 export can use the same output directory;
+formats are checked within each vintage and all cooperating writers share its
+one output lock. No cross-year combined manifest is created.
+
+### Revision and boundary provenance
+
+New manifests add `manifest_schema_version: 1`; a missing version is legacy 1.
+Unsupported versions fail before source loading. Existing 2021 `census_year: 2021`
+and `asgs_edition: 3` fields stay unchanged; 2016 uses edition 2. The latest-call
+summary and every newly exported table include `census_year`, `profile: GCP`,
+`data_years`, `boundary`, `source_revision` and `writer_version`. The version
+is read from the source project or metadata owning the installed module; copied
+standalone modules without either record `unknown`. Retained entries keep their
+writer version; a missing historical writer version remains absent.
+
+`boundary` names the ASGS framework/edition, `main_structure` versus
+`non_abs_structure`, boundary type, geography and exact source code column.
+SA1–SA4 and STE belong to the Main Structure; the remaining supported geographies
+belong to Non-ABS Structures. STE, LGA, SED and CED have type `administrative`;
+POA uses `postal_approximation`, SSC/SAL `locality`, and SA1–SA4 `statistical`.
+Its `reference_date` is null: an ASGS edition does not establish each
+administrative boundary's effective date. Consult the relevant ABS geography
+publication before making historical comparisons. The 2016 framework edition
+follows the [July 2016 ABS publication (1270.0.55.001)][asgs-2016],
+which explicitly identifies this as the second edition; the actual pack
+remains identified by its per-table ZIP SHA-256.
+
+`source_revision` records available Summary_of_Changes.txt members as references
+with their original SHA-256, member name and encoding. Document text is stored
+once in the manifest's `source_documents` map, keyed by that SHA-256. Resolve each
+reference through that map; references from retained tables may name different
+documents. Existing document text is re-encoded using its recorded encoding and
+checked against its SHA-256 key before reuse. A malformed store, a hash mismatch
+or a table identity contradicting the manifest refuses export before the source
+is opened. Use a fresh output folder or regenerate the inventory as the error
+explains. Unreferenced bodies are removed when no table needs them.
+
+UTF-8 BOMs are recognized; ASCII bytes are encoding-invariant. Unmarked UTF-8
+and cp1252 fallback interpretations have `encoding_inferred: true`: successfully
+decoding bytes does not prove their intended encoding. Documents over 2 MiB or
+with undecodable bytes retain their SHA-256 and `oversize`/`undecodable` status,
+with null text, encoding and encoding_inferred, without blocking valid data
+exports. Missing or empty change wording means unknown. No revision date is guessed from timestamps or the Census
+year. A hash identifies bytes; it does not prove an ABS release name. The 2016
+change document records the G14 recode and G36 rename when present in the pack.
+
+For legacy manifests, missing year, profile, covered data years and boundary
+fields are derived from the validated manifest identity and vintage definition.
+Revision facts and missing ZIP hashes stay unknown; they are never filled from
+the latest call's summary or another table's revision. Present values must equal
+that identity exactly, including every key of the `boundary` object; otherwise the
+manifest is refused before source access. Schema 1 therefore fixes the boundary
+object's contents: adding, removing or renaming a key or value requires a new
+manifest schema version, not an in-place schema 1 change.
+
+Version 0.2.0 can still update new 2021 manifests: it drops new top-level fields
+and fields on tables it re-exports, while retaining optional fields of untouched
+tables. A later new writer accepts the missing schema version and derives known
+identity again. Historical revision references survive for untouched tables,
+but their document text may be unavailable because 0.2.0 discarded the store.
+Each reference records `text_status`: available, missing, oversize or undecodable.
+A missing body has status missing and the enclosing revision is unavailable if
+no nonempty text remains. Supplying the same document again restores availability
+for all references. References retain the known hash and encoding facts.
+A missing document is never replaced by the latest call's different revision.
+Keep each table's provenance when combining outputs; older writers cannot enforce
+new schema-version rules. In particular, 0.2.0 can erase a future schema marker;
+keep future-schema outputs in separate folders rather than using that old writer
+on them. This compatibility promise concerns 2021 manifests,
+not asking 0.2.0 to process 2016.
+
+Formats produced only during unreleased development (inline document text or the
+old statistical/non_ABS structure labels) are refused rather than migrated.
+Regenerate those local exports in a fresh folder. Historical evidence remains
+unchanged; it is not an inventory for a current export.
 
 ## Use from Python
 
@@ -146,15 +254,20 @@ darwin = load_census(geo="POA", state="NT", table="G01", codes=["0800"])
 ```
 
 The requested `state` must match the CSV members in a local archive too. An `AUS`
-request requires national (`AUST`) members; it does not combine state files. This
+request requires national members (`AUS` in 2016, `AUST` in official 2021 CSV
+names); it does not combine state files. This
 applies to every supported geography. Direct `find_members` and `combine_table` calls may omit
 `state` only when the requested table/parts belong to one state; mixed-state candidates
 require an explicit state, even when the geographic codes happen to match.
 
 ## Supported geographies and discovery
 
-Only 2021 GCP files are supported. The member year, code-column year and manifest
-vintage remain 2021; files from 2016 or other years are not combined.
+Only 2016 and 2021 GCP files are supported. Member years, source code headers,
+cache identities, export filenames and manifest vintage follow the explicitly
+selected year. Archives with mixed Census vintages or other profiles are refused;
+no automatic historical joins or geography conversions are performed.
+
+The examples below use 2021 identifiers except the labelled 2016 SSC row.
 
 | Geography | Meaning | Example NSW source identifier |
 | --- | --- | --- |
@@ -167,9 +280,11 @@ vintage remain 2021; files from 2016 or other years are not combined.
 | SED | State Electoral Divisions | SED10001 |
 | CED | Commonwealth Electoral Divisions | CED101 |
 | STE | States and Territories | 1 |
-| SAL | Suburbs and Localities | SAL10001 |
+| SAL (2021) | Suburbs and Localities | SAL10001 |
+| SSC (2016) | State Suburbs | SSC10001 |
 
-The registry is exposed as `GEOGRAPHIES`. Codes are strings in returned data;
+The public `GEOGRAPHIES` mapping retains its 2021 meaning; API validation uses
+the requested year. Codes are strings in returned data;
 filters accept bare digits, the matching geography prefix, case variations and
 surrounding whitespace. Integer filters work too; only POA accepts whole-number
 floats and pads to four digits. Special numeric identifiers used for offshore,
@@ -177,9 +292,11 @@ migratory and no-usual-address areas are retained. Their meaning comes from ABS
 geography metadata, not from guessing based on the number. No boundary allocation,
 spatial joins or cross-vintage correspondence is performed.
 
-The complete official DataPack contains
-`Metadata/Metadata_2021_GCP_DataPack_R1_R2.xlsx`. Discovery reads its **Table Number,
-Name, Population** and **Cell Descriptors Information** sheets. It needs no extra
+The complete official 2021 DataPack contains
+`Metadata/Metadata_2021_GCP_DataPack_R1_R2.xlsx`; 2016 uses
+`Metadata/Metadata_2016_GCP_DataPack.xlsx`. Discovery reads the **Table Number,
+Name, Population** and **Cell Descriptors Information** sheets, accepting their
+observed capitalization differences. It needs no extra
 Excel package and does not evaluate formulas. A missing, ambiguous or malformed
 workbook raises an error; CSV-only extraction still works without the workbook.
 The original short measure names remain unchanged in wide and long data.
@@ -451,10 +568,12 @@ of recovery data.
 * ABS POAs approximate Australia Post postcodes; they do not perfectly align.
 * SA1 is smaller than POA, but most detailed 2021 Census demographic tables do
   **not** go down to Mesh Block level.
-* The 2021 Census uses ASGS Edition 3. Use an explicit geographic
+* Census 2016 uses ASGS Edition 2; Census 2021 uses ASGS Edition 3. Use an explicit geographic
   correspondence for other vintages or boundaries.
 * Random ABS confidentiality adjustments can affect small-area counts. Do not
   sum rates, medians or percentages as if they were additive.
 
 ABS DataPacks: https://www.abs.gov.au/census/find-census-data/datapacks
 
+
+[asgs-2016]: https://www.abs.gov.au/ausstats/abs%40.nsf/mf/1270.0.55.001

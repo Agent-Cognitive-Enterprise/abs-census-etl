@@ -47,6 +47,13 @@ class PackagingCheckTests(unittest.TestCase):
             [sys.executable, "-m", "unittest", "discover", "-s", str(directory),
              "-p", "test_*.py", "-v"], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        year_directory = Path(__file__).resolve().parents[1] / 'docs/research/year_coverage'
+        for name in ['README.md', 'check_ranges.py', 'test_ranges.py']:
+            self.assertTrue((year_directory / name).is_file(), 'Missing checkout year-coverage research: ' + name)
+        result = subprocess.run(
+            [sys.executable, '-m', 'unittest', 'discover', '-s', str(year_directory),
+             '-p', 'test_*.py', '-v'], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_missing_checkout_audit_fails_even_with_worktree_git_file(self):
         with tempfile.TemporaryDirectory() as directory:

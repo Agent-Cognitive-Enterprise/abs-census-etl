@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Read and transform ABS Census GCP DataPacks from Python or the CLI.
+"""Read and transform ABS 2016/2021 Census GCP DataPacks from Python or the CLI.
 
-Default year is 2021. Explicit year=2016 supports POA loading and discovery;
-2016 exports and other 2016 geographies are not enabled yet.
+Default year is 2021. Explicit year=2016 reads the original 2016 GCP geography,
+including its seven-digit SA1 identifiers. Both years support loading, metadata
+discovery and CSV/Parquet exports. SSC is 2016-only; SAL is 2021-only.
 Supported 2021 General Community Profile (GCP) geographies are POA, SA1–SA4,
 LGA, SED, CED, STE and SAL. Postal Areas approximate postcodes. Tables with
 lettered parts, such as G04A/G04B, are automatically joined on the geographic
@@ -34,7 +35,7 @@ CLI examples::
     abs-census-etl --zip local.zip --geo POA --tables G04 --long \
         --format csv --out out
 
-Census 2021 uses ASGS Edition 3 boundaries. Do not treat ABS Postal Areas as
+Census 2016 uses ASGS Edition 2; Census 2021 uses ASGS Edition 3. Do not treat ABS Postal Areas as
 identical to Australia Post postcodes, or join incompatible vintages without a
 correspondence. Census counts may include small confidentiality adjustments;
 percentages, rates and medians should not simply be summed.
@@ -55,11 +56,13 @@ import shutil
 import stat
 import sys
 import tempfile
+import tomllib
 import warnings
 import zlib
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, distribution
 from importlib.util import find_spec
 from numbers import Integral, Real
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -86,11 +89,16 @@ VALID_STATES = {"AUS", "NSW", "VIC", "QLD", "SA", "WA", "TAS", "NT", "ACT", "OT"
 
 # The public GEOGRAPHIES/VALID_GEOS/MEMBER_RE above retain their 2021 meanings.
 _VINTAGES = MappingProxyType({
-    2021: MappingProxyType({"profile": "GCP", "columns": MappingProxyType(
+    2021: MappingProxyType({"profile": "GCP", "asgs_edition": 3,
+        "table_count": 62, "variable_count": 16984, "columns": MappingProxyType(
         {geo: f"{geo}_CODE_2021" for geo in GEOGRAPHIES}),
         "national_tokens": frozenset({"AUS", "AUST"}), "member_re": MEMBER_RE}),
-    2016: MappingProxyType({"profile": "GCP", "columns": MappingProxyType(
-        {"POA": "POA_CODE_2016"}), "national_tokens": frozenset({"AUS"}),
+    2016: MappingProxyType({"profile": "GCP", "asgs_edition": 2,
+        "table_count": 59, "variable_count": 15535, "columns": MappingProxyType(
+        {"POA": "POA_CODE_2016", "SA1": "SA1_7DIGITCODE_2016",
+         "SA2": "SA2_MAINCODE_2016", "SA3": "SA3_CODE_2016", "SA4": "SA4_CODE_2016",
+         "LGA": "LGA_CODE_2016", "SED": "SED_CODE_2016", "CED": "CED_CODE_2016",
+         "SSC": "SSC_CODE_2016", "STE": "STE_CODE_2016"}), "national_tokens": frozenset({"AUS"}),
         "member_re": re.compile(
             r"2016Census_(G\d{2}[A-Z]?)_([A-Z]+)_([A-Z0-9]+)\.csv", re.I)}),
 })
@@ -180,9 +188,10 @@ PARQUET_ENGINE_HELP = (
 def args_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="abs-census-etl", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--geo", choices=sorted(VALID_GEOS), required=True)
+    parser.add_argument("--geo", choices=sorted(set().union(
+        *(v["columns"] for v in _VINTAGES.values()))), required=True)
     parser.add_argument("--year", type=int, choices=sorted(_VINTAGES), default=2021,
-                        help="Census year (default 2021); 2016 POA loading/discovery only")
+                        help="Census GCP year (default 2021); geography choices depend on year")
     parser.add_argument("--state", default="NSW", choices=sorted(VALID_STATES))
     parser.add_argument("--tables", nargs="+",
                         help="Table IDs, e.g. G01 G04; defaults to G01, or all for --describe")
@@ -574,7 +583,7 @@ def load_census_tables(*, geo: str = "POA", state: str = "NSW", year: int = 2021
                        long: bool = False) -> dict[str, pd.DataFrame]:
     """Return {table_id: DataFrame}, downloading/caching once if needed.
 
-    ``year`` is an integer, default 2021; 2016 currently supports POA only.
+    ``year`` is an integer, default 2021; supported GCP vintages are 2016 and 2021.
     ``geo`` is validated for the requested year. Use strings to preserve zeros.
     POA filters accept both "2000" and "POA2000"; returned codes retain
     the source format. Integer and finite whole-number float POA inputs are
@@ -1026,12 +1035,169 @@ def _source_hash(stream: BinaryIO) -> str:
     return digest
 
 
+def _writer_version() -> str:
+    """Read the single version source in a checkout, installed metadata otherwise."""
+    project = Path(__file__).with_name("pyproject.toml")
+    try:
+        with project.open("rb") as stream:
+            metadata = tomllib.load(stream).get("project", {})
+        if (isinstance(metadata, dict) and metadata.get("name") == "abs-census-etl"
+                and isinstance(metadata.get("version"), str)):
+            return metadata["version"]
+    except (OSError, ValueError):
+        pass
+    try:
+        installed = distribution("abs-census-etl")
+        module = Path(__file__).resolve()
+        if any(Path(installed.locate_file(file)).resolve() == module
+               for file in installed.files or ()):
+            return installed.version
+    except (PackageNotFoundError, OSError, ValueError):
+        pass
+    return "unknown"
+
+
+def _boundary_details(geo: str, year: int) -> dict:
+    """Framework edition is not an individual administrative boundary date."""
+    return {"framework": "ASGS", "edition": _vintage(year)["asgs_edition"],
+            "structure": "main_structure" if geo in {"SA1", "SA2", "SA3", "SA4", "STE"}
+                         else "non_abs_structure",
+            "boundary_type": ("administrative" if geo in {"LGA", "SED", "CED", "STE"} else
+                              "postal_approximation" if geo == "POA" else
+                              "locality" if geo in {"SSC", "SAL"} else "statistical"),
+            "geography": geo, "source_code_column": _code_column(geo, year),
+            "reference_date": None}
+
+
+def _source_revision(archive: ZipFile) -> dict:
+    """Retain explicit change-document evidence without inferring a release date."""
+    documents = []
+    for member in sorted(archive.namelist()):
+        if Path(member).name.casefold() != "summary_of_changes.txt":
+            continue
+        info = archive.getinfo(member)
+        if info.file_size > 2 * 1024 * 1024:
+            with archive.open(member) as stream:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+            documents.append({"member": member, "sha256": digest, "status": "oversize",
+                              "encoding": None, "encoding_inferred": None, "text": None})
+            continue
+        content = archive.read(member)
+        try:
+            if content.startswith(b"\xef\xbb\xbf"):
+                encoding, text = "utf-8-sig", content.decode("utf-8-sig")
+            else:
+                try:
+                    encoding, text = "utf-8", content.decode("utf-8")
+                    if content.isascii():
+                        encoding = "ascii"
+                except UnicodeDecodeError:
+                    encoding, text = "cp1252", content.decode("cp1252")
+        except UnicodeDecodeError:
+            documents.append({"member": member, "sha256": hashlib.sha256(content).hexdigest(),
+                              "status": "undecodable", "encoding": None,
+                              "encoding_inferred": None, "text": None})
+            continue
+        documents.append({"member": member, "sha256": hashlib.sha256(content).hexdigest(),
+                          "encoding": encoding, "encoding_inferred": encoding in {"cp1252", "utf-8"},
+                          "text": text})
+    status = ("documented" if any((d["text"] or "").strip() for d in documents) else
+              "unavailable" if any(d.get("status") in {"oversize", "undecodable"}
+                                   for d in documents) else "unknown")
+    return {"status": status, "documents": documents}
+
+
+def _reference_revision(revision: dict, documents: dict) -> dict:
+    """Keep text once; table references retain facts if an old writer drops the store."""
+    references = []
+    for document in revision["documents"]:
+        digest = document["sha256"]
+        documents[digest] = {key: value for key, value in document.items()
+                             if key not in {"member", "sha256"}}
+        references.append({key: value for key, value in document.items() if key != "text"})
+    return {"status": revision["status"], "documents": references}
+
+
+
+def _document_metadata(document: dict) -> None:
+    """Validate the common store/reference metadata without guessing encodings."""
+    if not isinstance(document, dict):
+        raise ValueError("Revision document must be an object")
+    encoding = document.get("encoding")
+    inferred = document.get("encoding_inferred")
+    status = document.get("status")
+    if status in ("oversize", "undecodable"):
+        if encoding is not None or inferred is not None:
+            raise ValueError("Unavailable encoding and inference must both be null")
+    elif status not in (None, "documented") or encoding not in (
+            "ascii", "utf-8", "utf-8-sig", "cp1252"):
+        raise ValueError("Invalid revision document encoding or status")
+    elif type(inferred) is not bool or inferred != (encoding in {"utf-8", "cp1252"}):
+        raise ValueError("Invalid revision encoding inference")
+
+
+def _validated_document_store(store: dict) -> dict:
+    if not isinstance(store, dict):
+        raise ValueError("source_documents must be an object")
+    for digest, document in store.items():
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError("Invalid revision document SHA-256")
+        _document_metadata(document)
+        text = document.get("text")
+        if document.get("status") in ("oversize", "undecodable"):
+            if text is not None:
+                raise ValueError("Unavailable revision document must have null text")
+        else:
+            if not isinstance(text, str):
+                raise ValueError("Revision document text must be a string")
+            body = text.encode(document["encoding"])
+            if hashlib.sha256(body).hexdigest() != digest:
+                raise ValueError("Revision document SHA-256 mismatch")
+    return dict(store)
+
+
+def _retained_revision(revision: dict | None, documents: dict) -> dict | None:
+    if revision is None:
+        return None
+    if (not isinstance(revision, dict)
+            or revision.get("status") not in ("documented", "unknown", "unavailable")
+            or not isinstance(revision.get("documents"), list)):
+        raise ValueError("Invalid source_revision object/status/documents")
+    references = []
+    for reference in revision["documents"]:
+        _document_metadata(reference)
+        digest = reference.get("sha256")
+        if (not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+                or not isinstance(reference.get("member"), str) or not reference["member"]
+                or "text" in reference
+                or ("text_status" in reference and reference["text_status"] not in (
+                    "available", "missing", "oversize", "undecodable"))):
+            raise ValueError("Invalid revision reference; regenerate unreleased inline documents")
+        document = documents.get(digest)
+        if document is not None and any(reference.get(key) != document.get(key)
+                                        for key in ("encoding", "encoding_inferred", "status")):
+            raise ValueError("Revision reference disagrees with stored document")
+        text_status = ("missing" if document is None else
+                       document.get("status") if document.get("text") is None else "available")
+        references.append({**reference, "text_status": text_status})
+    available = any(ref["text_status"] == "available"
+                    and documents[ref["sha256"]]["text"].strip() for ref in references)
+    unavailable = any(ref["text_status"] != "available" for ref in references)
+    return {**revision, "documents": references,
+            "status": "documented" if available else "unavailable" if unavailable else "unknown"}
+
+
+def _manifest_provenance_error(path: Path, error: Exception) -> ValueError:
+    return ValueError(f"Invalid existing manifest: {path}: {error}. "
+                      "Use a fresh output folder or remove only this manifest and "
+                      "regenerate the inventory; exported data is not removed.")
+
 def _preflight_format(out: Path, geo: str, state: str,
-                      tables: Sequence[str], file_format: str) -> None:
+                      tables: Sequence[str], file_format: str, *, year: int = 2021) -> None:
     other_format = "parquet" if file_format == "csv" else "csv"
-    conflicts = [out / f"2021_GCP_{geo}_{state}_{table}_{shape}.{other_format}"
+    conflicts = [out / f"{year}_GCP_{geo}_{state}_{table}_{shape}.{other_format}"
                  for table in tables for shape in ("wide", "long")
-                 if (out / f"2021_GCP_{geo}_{state}_{table}_{shape}.{other_format}").exists()]
+                 if (out / f"{year}_GCP_{geo}_{state}_{table}_{shape}.{other_format}").exists()]
     if conflicts:
         raise FileExistsError("Other-format exports already exist: "
                               + ", ".join(str(path) for path in conflicts) + ". "
@@ -1040,8 +1206,8 @@ def _preflight_format(out: Path, geo: str, state: str,
 
 def _preflight_destination(*, out_dir: Path, existing_parent: Path, geo: str,
                            state: str, table_ids: Sequence[str], long: bool,
-                           file_format: str, warned_orphans: set[Path]
-                           ) -> tuple[Path, dict[str, Path], dict]:
+                           file_format: str, warned_orphans: set[Path], year: int = 2021
+                           ) -> tuple[Path, dict[str, Path], dict, dict]:
     """Inspect without writing; callers must repeat under lock before using results."""
     recovery_journals = []
     orphan_folders = []
@@ -1072,9 +1238,9 @@ def _preflight_destination(*, out_dir: Path, existing_parent: Path, geo: str,
                       "one still running; delete them when no export is running.",
                       RuntimeWarning, stacklevel=3)
         warned_orphans.update(orphan_folders)
-    _preflight_format(out_dir, geo, state, table_ids, file_format)
-    manifest_path = out_dir / f"2021_GCP_{geo}_{state}_manifest.json"
-    targets = {table: out_dir / (f"2021_GCP_{geo}_{state}_{table}_"
+    _preflight_format(out_dir, geo, state, table_ids, file_format, year=year)
+    manifest_path = out_dir / f"{year}_GCP_{geo}_{state}_manifest.json"
+    targets = {table: out_dir / (f"{year}_GCP_{geo}_{state}_{table}_"
                                  f"{'long' if long else 'wide'}.{file_format}")
                for table in table_ids}
     destinations = [manifest_path, *targets.values()]
@@ -1096,6 +1262,7 @@ def _preflight_destination(*, out_dir: Path, existing_parent: Path, geo: str,
                               + ", ".join(str(path) for path in read_only) + ". "
                               "Make it writable or use a fresh output folder.")
     retained_tables = {}
+    source_documents = {}
     if manifest_path.exists():
         try:
             previous = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1103,15 +1270,25 @@ def _preflight_destination(*, out_dir: Path, existing_parent: Path, geo: str,
             raise ValueError(f"Invalid existing manifest: {manifest_path}. "
                              "Remove only this manifest or use a fresh output folder; "
                              "removing it discards prior inventory, not exported data.") from exc
+        schema = previous.get("manifest_schema_version", 1) if isinstance(previous, dict) else 1
+        if type(schema) is not int or schema != 1:
+            raise ValueError(f"Unsupported manifest schema version {schema!r}: {manifest_path}; "
+                             "use a compatible application or a fresh output folder")
         if (not isinstance(previous, dict)
                 or previous.get("geography") != geo or previous.get("state") != state
-                or previous.get("census_year") != 2021 or previous.get("asgs_edition") != 3
+                or previous.get("census_year") != year
+                or previous.get("asgs_edition") != (_vintage(year)["asgs_edition"])
                 or not isinstance(previous.get("tables"), dict)
                 or any(not isinstance(entry, dict) or not isinstance(entry.get("file"), str)
                        for entry in previous["tables"].values())):
             raise ValueError(f"Incompatible existing manifest: {manifest_path}. "
                              "Remove only this manifest or use a fresh output folder; "
                              "removing it discards prior inventory, not exported data.")
+        try:
+            source_documents = _validated_document_store(previous.get("source_documents", {}))
+            _retained_revision(previous.get("source_revision"), source_documents)
+        except (ValueError, UnicodeError) as error:
+            raise _manifest_provenance_error(manifest_path, error) from error
         for table, entry in previous["tables"].items():
             # Older manifests kept provenance only at the top level. Backfill
             # those fields before combining entries from separate export calls.
@@ -1131,9 +1308,25 @@ def _preflight_destination(*, out_dir: Path, existing_parent: Path, geo: str,
                             or PurePosixPath(provenance).is_absolute()
                             or PureWindowsPath(provenance).is_absolute())
                 retained["source_path_kind"] = "absolute" if absolute else "legacy_cwd_relative"
+            # Derive identity from the validated inventory, never latest-call revision facts.
+            identity = {"census_year": year, "profile": _vintage(year)["profile"],
+                        "data_years": [year], "boundary": _boundary_details(geo, year)}
+            for field, value in identity.items():
+                if retained.get(field) is None:
+                    retained[field] = value
+                elif type(retained[field]) is not type(value) or retained[field] != value:
+                    raise ValueError(f"Incompatible existing manifest: {manifest_path}: "
+                                     f"table {table} contradicts {field}. Use a fresh output "
+                                     "folder or regenerate this manifest's inventory.")
+            retained.setdefault("source_revision", None)
+            try:
+                retained["source_revision"] = _retained_revision(
+                    retained["source_revision"], source_documents)
+            except (ValueError, UnicodeError) as error:
+                raise _manifest_provenance_error(manifest_path, error) from error
             retained.setdefault("source_sha256", None)
             retained_tables[table] = retained
-    return manifest_path, targets, retained_tables
+    return manifest_path, targets, retained_tables, source_documents
 
 
 def export_census(*, geo: str = "POA", state: str = "NSW", year: int = 2021,
@@ -1146,9 +1339,7 @@ def export_census(*, geo: str = "POA", state: str = "NSW", year: int = 2021,
                   file_format: str = "csv") -> dict[str, Path]:
     """Run extraction and write tables + a JSON manifest. Return output paths."""
     geo, state = _validate_geography(geo, state, year=year)
-    if year != 2021:
-        raise ValueError("2016 exports are not enabled yet; use load_census/load_census_tables "
-                         "or --list-columns/--list-tables/--describe with --year 2016")
+    year = int(year)  # Integral API inputs must serialize as ordinary JSON integers.
     table_ids = _normalize_tables(tables)
     codes = _validate_codes(geo, codes)
     keep = _validate_keep(keep)
@@ -1187,28 +1378,36 @@ def export_census(*, geo: str = "POA", state: str = "NSW", year: int = 2021,
         _preflight_destination(
             out_dir=out_dir, existing_parent=existing_parent, geo=geo, state=state,
             table_ids=table_ids, long=long, file_format=file_format,
-            warned_orphans=warned_orphans)
+            warned_orphans=warned_orphans, year=year)
         _validate_zip(Path(source_zip))
         _validate_source_identity(Path(source_zip), year, geo=geo)
     out_dir.mkdir(parents=True, exist_ok=True)
     with _export_lock(out_dir):
-        manifest_path, targets, retained_tables = _preflight_destination(
+        manifest_path, targets, retained_tables, source_documents = _preflight_destination(
             out_dir=out_dir, existing_parent=existing_parent, geo=geo, state=state,
             table_ids=table_ids, long=long, file_format=file_format,
-            warned_orphans=warned_orphans)
+            warned_orphans=warned_orphans, year=year)
         source = _resolve_source(geo=geo, state=state, source_zip=source_zip,
                                  cache_dir=cache_dir, year=year).resolve()
         with source.open("rb", buffering=0) as stream:
             source_sha256 = _source_hash(stream)
             data = _read_tables_from_zip(source=stream, geo=geo, state=state, tables=table_ids,
                                          codes=codes, keep=keep, long=long, year=year)
+            with _zip_read_errors(source), ZipFile(stream) as archive:
+                revision = _source_revision(archive)
             if _source_hash(stream) != source_sha256:
                 raise ValueError(f"Source ZIP changed during export: {source}; retry with a stable copy")
-        url = datapack_url(geo, state)
+        revision = _retained_revision(_reference_revision(revision, source_documents), source_documents)
+        writer_version = _writer_version()
+        url = datapack_url(geo, state, year=year)
         manifest = {"source": str(source), "source_url": url if source_zip is None else None,
                     "source_path_kind": "absolute", "file_format": file_format,
                     "manifest_scope": "latest_export_per_table", "source_sha256": source_sha256,
-                    "census_year": 2021, "asgs_edition": 3, "geography": geo,
+                    "census_year": year, "asgs_edition": _vintage(year)["asgs_edition"],
+                    "manifest_schema_version": 1, "writer_version": writer_version,
+                    "source_documents": source_documents, "profile": "GCP", "data_years": [year],
+                    "boundary": _boundary_details(geo, year), "source_revision": revision,
+                    "geography": geo,
                     "state": state, "created_utc": datetime.now(timezone.utc).isoformat(),
                     "tables": retained_tables}
         work = Path(tempfile.mkdtemp(dir=out_dir, prefix=".abs-export-"))
@@ -1230,6 +1429,9 @@ def export_census(*, geo: str = "POA", state: str = "NSW", year: int = 2021,
                 staged[target] = pending
                 n_areas = df[code].nunique() if long else len(df)
                 manifest["tables"][table_id] = {
+                    "census_year": year, "writer_version": writer_version,
+                    "profile": "GCP", "data_years": [year],
+                    "boundary": manifest["boundary"], "source_revision": revision,
                     "file": target.name, "areas": n_areas,
                     "rows": len(df), "columns": df.columns.tolist(),
                     "source": str(source), "source_url": manifest["source_url"],
@@ -1237,6 +1439,15 @@ def export_census(*, geo: str = "POA", state: str = "NSW", year: int = 2021,
                     "created_utc": manifest["created_utc"], "file_format": file_format,
                     "shape": "long" if long else "wide",
                 }
+            referenced = set()
+            for entry in [manifest, *manifest["tables"].values()]:
+                history = _retained_revision(entry.get("source_revision"), source_documents)
+                entry["source_revision"] = history
+                if isinstance(history, dict):
+                    referenced.update(doc["sha256"] for doc in history.get("documents", [])
+                                      if isinstance(doc, dict) and "sha256" in doc)
+            manifest["source_documents"] = {digest: doc for digest, doc in source_documents.items()
+                                            if digest in referenced}
             pending_manifest = work / f"{manifest_path.name}.part"
             mode_source = manifest_path if manifest_path.exists() else next(iter(staged.values()))
             _write_manifest(pending_manifest, manifest, permissions_from=mode_source)
@@ -1260,6 +1471,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     """CLI entry point; accepts an argument list for testing/embedding."""
     parser = args_parser()
     args = parser.parse_args(argv)
+    if args.geo not in _vintage(args.year)["columns"]:
+        parser.error(f"Unsupported geography {args.geo!r} for {args.year}; choose "
+                     + ", ".join(sorted(_vintage(args.year)["columns"])))
     if args.search is not None and not (args.list_tables or args.describe):
         parser.error("--search requires --list-tables or --describe")
     if args.list_tables or args.describe:
@@ -1297,7 +1511,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"WARNING: {warning.message}", file=sys.stderr)
     for table, path in outputs.items():
         print(f"{table}: {path}")
-    print(f"Manifest: {args.out / f'2021_GCP_{args.geo}_{args.state}_manifest.json'}")
+    print(f"Manifest: {args.out / f'{args.year}_GCP_{args.geo}_{args.state}_manifest.json'}")
     return 0
 
 

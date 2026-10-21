@@ -87,6 +87,136 @@ class Response:
         yield self.body
 
 
+
+# Observed G01 samples from the accepted 2016 all-state structural survey.
+# Full pack values are tested separately; small fixtures reuse these real IDs.
+GEO_SAMPLES = {('CED', 'ACT'): ['CED801', 'CED802'],
+ ('CED', 'AUS'): ['CED101', 'CED102'],
+ ('CED', 'NSW'): ['CED101', 'CED102'],
+ ('CED', 'NT'): ['CED701', 'CED702'],
+ ('CED', 'OT'): ['CED994', 'CED997'],
+ ('CED', 'QLD'): ['CED301', 'CED302'],
+ ('CED', 'SA'): ['CED401', 'CED402'],
+ ('CED', 'TAS'): ['CED601', 'CED602'],
+ ('CED', 'VIC'): ['CED201', 'CED202'],
+ ('CED', 'WA'): ['CED501', 'CED502'],
+ ('LGA', 'ACT'): ['LGA89399', 'LGA89499'],
+ ('LGA', 'AUS'): ['LGA10050', 'LGA10130'],
+ ('LGA', 'NSW'): ['LGA10050', 'LGA10130'],
+ ('LGA', 'NT'): ['LGA70200', 'LGA70420'],
+ ('LGA', 'OT'): ['LGA99399', 'LGA99499'],
+ ('LGA', 'QLD'): ['LGA30250', 'LGA30300'],
+ ('LGA', 'SA'): ['LGA40070', 'LGA40120'],
+ ('LGA', 'TAS'): ['LGA60210', 'LGA60410'],
+ ('LGA', 'VIC'): ['LGA20110', 'LGA20260'],
+ ('LGA', 'WA'): ['LGA50080', 'LGA50210'],
+ ('POA', 'ACT'): ['POA2600', 'POA2601'],
+ ('POA', 'AUS'): ['POA2000', 'POA2006'],
+ ('POA', 'NSW'): ['POA2000', 'POA2006'],
+ ('POA', 'NT'): ['POA0800', 'POA0810'],
+ ('POA', 'OT'): ['POA2899', 'POA6798'],
+ ('POA', 'QLD'): ['POA4000', 'POA4005'],
+ ('POA', 'SA'): ['POA5000', 'POA5005'],
+ ('POA', 'TAS'): ['POA7000', 'POA7001'],
+ ('POA', 'VIC'): ['POA3000', 'POA3002'],
+ ('POA', 'WA'): ['POA6000', 'POA6003'],
+ ('SA1', 'ACT'): ['8100101', '8100102'],
+ ('SA1', 'AUS'): ['1100701', '1100702'],
+ ('SA1', 'NSW'): ['1100701', '1100702'],
+ ('SA1', 'NT'): ['7100101', '7100204'],
+ ('SA1', 'OT'): ['9100101', '9100102'],
+ ('SA1', 'QLD'): ['3100101', '3100102'],
+ ('SA1', 'SA'): ['4100101', '4100102'],
+ ('SA1', 'TAS'): ['6100101', '6100102'],
+ ('SA1', 'VIC'): ['2100101', '2100102'],
+ ('SA1', 'WA'): ['5100101', '5100102'],
+ ('SA2', 'ACT'): ['801011001', '801011002'],
+ ('SA2', 'AUS'): ['101021007', '101021008'],
+ ('SA2', 'NSW'): ['101021007', '101021008'],
+ ('SA2', 'NT'): ['701011001', '701011002'],
+ ('SA2', 'OT'): ['901011001', '901021002'],
+ ('SA2', 'QLD'): ['301011001', '301011002'],
+ ('SA2', 'SA'): ['401011001', '401011002'],
+ ('SA2', 'TAS'): ['601011001', '601011002'],
+ ('SA2', 'VIC'): ['201011001', '201011002'],
+ ('SA2', 'WA'): ['501011001', '501011002'],
+ ('SA3', 'ACT'): ['80101', '80103'],
+ ('SA3', 'AUS'): ['10102', '10103'],
+ ('SA3', 'NSW'): ['10102', '10103'],
+ ('SA3', 'NT'): ['70101', '70102'],
+ ('SA3', 'OT'): ['90101', '90102'],
+ ('SA3', 'QLD'): ['30101', '30102'],
+ ('SA3', 'SA'): ['40101', '40102'],
+ ('SA3', 'TAS'): ['60101', '60102'],
+ ('SA3', 'VIC'): ['20101', '20102'],
+ ('SA3', 'WA'): ['50101', '50102'],
+ ('SA4', 'ACT'): ['801', '897'],
+ ('SA4', 'AUS'): ['101', '102'],
+ ('SA4', 'NSW'): ['101', '102'],
+ ('SA4', 'NT'): ['701', '702'],
+ ('SA4', 'OT'): ['901', '997'],
+ ('SA4', 'QLD'): ['301', '302'],
+ ('SA4', 'SA'): ['401', '402'],
+ ('SA4', 'TAS'): ['601', '602'],
+ ('SA4', 'VIC'): ['201', '202'],
+ ('SA4', 'WA'): ['501', '502'],
+ ('SED', 'ACT'): ['SED80001', 'SED80002'],
+ ('SED', 'AUS'): ['SED10001', 'SED10002'],
+ ('SED', 'NSW'): ['SED10001', 'SED10002'],
+ ('SED', 'NT'): ['SED70001', 'SED70002'],
+ ('SED', 'OT'): ['SED99191', 'SED99494'],
+ ('SED', 'QLD'): ['SED30001', 'SED30002'],
+ ('SED', 'SA'): ['SED40001', 'SED40002'],
+ ('SED', 'TAS'): ['SED60101', 'SED60106'],
+ ('SED', 'VIC'): ['SED20106', 'SED20207'],
+ ('SED', 'WA'): ['SED50106', 'SED50205'],
+ ('SSC', 'ACT'): ['SSC80001', 'SSC80002'],
+ ('SSC', 'AUS'): ['SSC10001', 'SSC10002'],
+ ('SSC', 'NSW'): ['SSC10001', 'SSC10002'],
+ ('SSC', 'NT'): ['SSC70001', 'SSC70002'],
+ ('SSC', 'OT'): ['SSC90001', 'SSC90002'],
+ ('SSC', 'QLD'): ['SSC30001', 'SSC30002'],
+ ('SSC', 'SA'): ['SSC40001', 'SSC40002'],
+ ('SSC', 'TAS'): ['SSC60001', 'SSC60002'],
+ ('SSC', 'VIC'): ['SSC20001', 'SSC20002'],
+ ('SSC', 'WA'): ['SSC50001', 'SSC50002'],
+ ('STE', 'ACT'): ['8'],
+ ('STE', 'AUS'): ['1', '2'],
+ ('STE', 'NSW'): ['1'],
+ ('STE', 'NT'): ['7'],
+ ('STE', 'OT'): ['9'],
+ ('STE', 'QLD'): ['3'],
+ ('STE', 'SA'): ['4'],
+ ('STE', 'TAS'): ['6'],
+ ('STE', 'VIC'): ['2'],
+ ('STE', 'WA'): ['5']}
+CODE_COLUMNS_2016 = {
+    'POA': 'POA_CODE_2016', 'SA1': 'SA1_7DIGITCODE_2016', 'SA2': 'SA2_MAINCODE_2016',
+    **{g: f'{g}_CODE_2016' for g in ['SA3', 'SA4', 'LGA', 'SED', 'CED', 'SSC', 'STE']},
+}
+
+
+def geography_pack(path, geo, state='NSW', *, revision=None):
+    year_pack(path, state=state)
+    with ZipFile(path) as archive:
+        entries = {name: archive.read(name) for name in archive.namelist()}
+    with ZipFile(path, 'w', compression=ZIP_DEFLATED) as archive:
+        for name, body in entries.items():
+            if name.endswith('.csv'):
+                name = name.replace('_POA.csv', f'_{geo}.csv').replace(
+                    'Postal Areas', etl.GEOGRAPHIES.get(geo, 'State Suburbs'))
+                lines = body.decode().splitlines()
+                measures = lines[0].split(',')[1:]
+                values = lines[1].split(',')[1:]
+                body = (CODE_COLUMNS_2016[geo] + ',' + ','.join(measures) + '\n'
+                        + ''.join(code + ',' + ','.join(values) + '\n'
+                                  for code in GEO_SAMPLES[(geo, state)])).encode()
+            archive.writestr(name, body)
+        if revision is not None:
+            archive.writestr('Readme/Summary_of_Changes.txt', revision)
+    return path
+
+
 class YearCoverageTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -113,6 +243,10 @@ class YearCoverageTests(unittest.TestCase):
                                  codes=[' poa2000 '], keep=[' Tot_P_P '], long=True)
         self.assertEqual(frame.columns.tolist(), ['POA_CODE_2016', 'variable', 'value'])
         self.assertEqual(frame.iloc[0].tolist(), ['POA2000', 'Tot_P_P', 27411])
+        out = self.root / 'integral-year-export'
+        etl.export_census(year=np.int64(2016), source_zip=self.old, out=out)
+        manifest = json.loads((out/'2016_GCP_POA_NSW_manifest.json').read_text())
+        self.assertEqual(manifest['census_year'], 2016)
         with self.assertRaisesRegex(ValueError, 'Unknown column'):
             etl.load_census(year=2016, source_zip=self.old, keep=['not_a_measure'])
 
@@ -191,7 +325,7 @@ class YearCoverageTests(unittest.TestCase):
                     with self.subTest(function=fn.__name__, year=year):
                         with self.assertRaisesRegex(ValueError, 'Unsupported Census year'):
                             fn(year=year)
-                for geo in ['SA1', 'SA2', 'SAL', 'SSC']:
+                for geo in ['SAL', 'UNKNOWN']:
                     with self.assertRaisesRegex(ValueError, 'Unsupported geography'):
                         fn(year=2016, geo=geo)
                 with self.assertRaisesRegex(ValueError, 'Unsupported geography'):
@@ -280,14 +414,14 @@ class YearCoverageTests(unittest.TestCase):
                 self.assertIn('ERROR:', stderr.getvalue())
                 self.assertTrue(not destination.exists() or not list(destination.iterdir()))
 
-    def test_2016_export_is_refused_before_source_or_output(self):
+    def test_unsupported_export_year_is_refused_before_source_or_output(self):
         out = self.root / 'not-created'
         with patch.object(etl, '_resolve_source', side_effect=AssertionError('source accessed')):
-            with self.assertRaisesRegex(ValueError, '2016 exports are not enabled'):
-                etl.export_census(year=2016, out=out)
+            with self.assertRaisesRegex(ValueError, 'Unsupported Census year'):
+                etl.export_census(year=2011, out=out)
         self.assertFalse(out.exists())
 
-    def test_cli_discovers_2016_but_does_not_export_it(self):
+    def test_cli_discovers_and_exports_2016(self):
         for flags, expected in [(['--list-tables'], 'G04A,G04B'),
                                 (['--describe', '--search', 'total_persons'], 'Tot_P_P'),
                                 (['--list-columns'], 'Tot_P_P')]:
@@ -301,11 +435,14 @@ class YearCoverageTests(unittest.TestCase):
                 self.assertNotIn('POA_CODE_2021', result.stdout, 'code column leaked')
         stderr = io.StringIO()
         out = self.root / 'cli-export'
-        with patch('sys.stderr', stderr):
-            status = etl.cli(['--geo', 'POA', '--year', '2016', '--out', str(out)])
-        self.assertEqual(status, 1)
-        self.assertIn('ERROR: 2016 exports are not enabled', stderr.getvalue())
-        self.assertFalse(out.exists())
+        stdout = io.StringIO()
+        with patch('sys.stderr', stderr), patch('sys.stdout', stdout):
+            status = etl.cli(['--geo', 'POA', '--year', '2016', '--zip', str(self.old),
+                              '--out', str(out)])
+        self.assertEqual(status, 0, stderr.getvalue())
+        self.assertTrue((out / '2016_GCP_POA_NSW_manifest.json').is_file())
+        self.assertIn(f'Manifest: {out / "2016_GCP_POA_NSW_manifest.json"}', stdout.getvalue(),
+                      'CLI manifest path lost selected year')
 
     def test_cache_paths_do_not_reuse_other_year_and_have_identity_checks(self):
         cache = self.root / 'cache'
@@ -409,7 +546,7 @@ class YearCoverageTests(unittest.TestCase):
                                 cache_dir=self.root, year=2021)
         self.assertIn(str(self.old), str(caught.exception), 'source path missing')
 
-    def test_unsupported_other_year_geography_does_not_suggest_that_year(self):
+    def test_supported_other_year_geography_suggests_explicit_year(self):
         source = self.root / '2016-sa1.zip'
         with ZipFile(source, 'w') as archive:
             archive.writestr('2016Census_G01_NSW_SA1.csv',
@@ -417,8 +554,7 @@ class YearCoverageTests(unittest.TestCase):
         with self.assertRaises(ValueError) as caught:
             etl.load_census(geo='SA1', source_zip=source)
         self.assertIn('found 2016', str(caught.exception))
-        self.assertIn("2016 supports only ['POA']", str(caught.exception))
-        self.assertNotIn('--year 2016', str(caught.exception))
+        self.assertIn('--year 2016', str(caught.exception))
 
     def test_2016_national_member_token_is_not_2021_aust(self):
         source = year_pack(self.root / 'national.zip', state='AUS')
@@ -436,7 +572,7 @@ class YearCoverageTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             etl._VINTAGES[2016] = {}
         with self.assertRaises(TypeError):
-            etl._VINTAGES[2016]['columns']['SA1'] = 'SA1_7DIGITCODE_2016'
+            etl._VINTAGES[2016]['columns']['UNKNOWN'] = 'UNREVIEWED_CODE'
         with self.assertRaises(TypeError):
             etl._VINTAGES[2016]['national_tokens'] = frozenset({'AUST'})
 
@@ -651,6 +787,567 @@ class YearCoverageTests(unittest.TestCase):
             child.kill()
             child.communicate(timeout=15)
         self.assertTrue((work / 'recovery.json').exists())
+
+    def test_all_2016_geographies_states_headers_and_descriptions(self):
+        for geo, state in GEO_SAMPLES:
+            with self.subTest(geo=geo, state=state):
+                source = geography_pack(self.root / 'geo.zip', geo, state)
+                code = GEO_SAMPLES[(geo, state)][0]
+                frame = etl.load_census(year=2016, geo=geo.lower(), state=state.lower(),
+                                        source_zip=source, codes=[f' {code.lower()} '])
+                self.assertEqual(frame.columns[0], CODE_COLUMNS_2016[geo])
+                self.assertEqual(frame.iloc[:, 0].tolist(), [code])
+                long = etl.load_census(year=2016, geo=geo, state=state, source_zip=source,
+                                       table='G04', codes=[code], long=True)
+                self.assertEqual(long.columns.tolist(), [CODE_COLUMNS_2016[geo], 'variable', 'value'])
+                self.assertEqual(len(etl.describe_census(year=2016, geo=geo, state=state,
+                                                        source_zip=source)), 3)
+                with ZipFile(source) as archive:
+                    self.assertEqual(etl.find_members(archive, 'G01', geo, year=2016),
+                                     etl.find_members(archive, 'G01', geo, state, year=2016))
+        self.assertEqual(set(CODE_COLUMNS_2016), set(etl._VINTAGES[2016]['columns']))
+
+    def test_2016_identifiers_are_not_translated_and_partial_misses_fail(self):
+        for geo in ['SA1', 'SA2', 'SSC', 'LGA']:
+            source = geography_pack(self.root / 'geo.zip', geo)
+            code = GEO_SAMPLES[(geo, 'NSW')][0]
+            with self.assertRaisesRegex(ValueError, 'Unmatched'):
+                etl.load_census(year=2016, geo=geo, source_zip=source, codes=[code, '99999999999'])
+            if geo == 'SA1':
+                with self.assertRaisesRegex(ValueError, 'Unmatched SA1'):
+                    etl.load_census(year=2016, geo=geo, source_zip=source, codes=['10102100701'])
+        for year, geo in [(2016, 'SAL'), (2021, 'SSC')]:
+            stderr = io.StringIO()
+            with patch('sys.stderr', stderr), patch.object(etl, '_resolve_source',
+                    side_effect=AssertionError('source accessed')):
+                with self.assertRaises(SystemExit) as error:
+                    etl.cli(['--year', str(year), '--geo', geo, '--list-tables'])
+                self.assertEqual(error.exception.code, 2)
+            self.assertIn('Unsupported geography', stderr.getvalue())
+            self.assertIn('choose ' + ', '.join(sorted(etl._vintage(year)['columns'])),
+                          stderr.getvalue())
+
+    def test_year_qualified_exports_coexist_and_preserve_source_headers(self):
+        out = self.root / 'both-years'
+        for geo in CODE_COLUMNS_2016:
+            source = geography_pack(self.root / 'geo-export.zip', geo)
+            code = GEO_SAMPLES[(geo, 'NSW')][0]
+            for long in [False, True]:
+                files = etl.export_census(year=2016, geo=geo, source_zip=source, out=out,
+                                          codes=[code], tables=['G01', 'G04'], long=long)
+                manifest_path = out / f'2016_GCP_{geo}_NSW_manifest.json'
+                self.assertTrue(manifest_path.is_file(), 'manifest path lost Census year')
+                manifest = json.loads(manifest_path.read_text())
+                self.assertEqual(manifest['census_year'], 2016)
+                self.assertEqual(manifest['asgs_edition'], 2)
+                self.assertEqual(manifest['manifest_schema_version'], 1)
+                self.assertEqual(manifest['data_years'], [2016])
+                self.assertEqual(manifest['boundary']['source_code_column'], CODE_COLUMNS_2016[geo])
+                self.assertIsNone(manifest['boundary']['reference_date'])
+                for table, file in files.items():
+                    data = pd.read_csv(file, dtype={CODE_COLUMNS_2016[geo]: 'string'})
+                    self.assertEqual(data.columns[0], CODE_COLUMNS_2016[geo])
+                    self.assertEqual(set(data.iloc[:, 0]), {code})
+                    self.assertEqual(manifest['tables'][table]['census_year'], 2016)
+                    self.assertEqual(manifest['tables'][table]['data_years'], [2016])
+        etl.export_census(source_zip=self.new, out=out)
+        self.assertTrue((out/'2021_GCP_POA_NSW_manifest.json').is_file())
+        self.assertTrue((out/'2016_GCP_POA_NSW_manifest.json').is_file())
+
+    def test_format_conflicts_are_year_specific_and_bad_identity_still_has_no_artifacts(self):
+        out = self.root / 'formats'
+        out.mkdir()
+        (out/'2021_GCP_POA_NSW_G01_wide.parquet').write_bytes(b'existing')
+        etl.export_census(year=2016, source_zip=self.old, out=out)
+        with patch.object(etl, '_resolve_source', side_effect=AssertionError('source accessed')):
+            with self.assertRaises(FileExistsError):
+                etl.export_census(source_zip=self.new, out=out)
+        for source in [self.new]:
+            for exists in [False, True]:
+                bad_out = self.root / ('existing' if exists else 'fresh')
+                if exists:
+                    bad_out.mkdir()
+                with self.assertRaisesRegex(ValueError, 'Wrong Census year'):
+                    etl.export_census(year=2016, source_zip=source, out=bad_out)
+                self.assertTrue(not bad_out.exists() or not list(bad_out.iterdir()))
+
+    def test_both_export_years_use_one_existing_output_lock(self):
+        out = self.root / 'shared'
+        out.mkdir()
+        with etl._export_lock(out):
+            for year, source in [(2016, self.old), (2021, self.new)]:
+                with patch.object(etl, '_resolve_source', side_effect=AssertionError('source accessed')):
+                    with self.assertRaisesRegex(BlockingIOError, 'busy'):
+                        etl.export_census(year=year, source_zip=source, out=out)
+
+    def test_publish_failure_rolls_back_data_and_manifest_in_both_years(self):
+        replace = Path.replace
+        for year, source in [(2016, self.old), (2021, self.new)]:
+            out = self.root / f'rollback-{year}'
+            etl.export_census(year=year, source_zip=source, tables=['G01', 'G04'], out=out)
+            before = {p.name: p.read_bytes() for p in out.iterdir()}
+            blocked = f'{year}_GCP_POA_NSW_G04_wide.csv.part'
+            def fail_second(path, target):
+                if path.name == blocked:
+                    raise OSError('injected second publish failure')
+                return replace(path, target)
+            with patch.object(Path, 'replace', fail_second):
+                with self.assertRaisesRegex(OSError, 'second publish failure'):
+                    etl.export_census(year=year, source_zip=source, codes=['2000'],
+                                      tables=['G01', 'G04'], out=out)
+            self.assertEqual(before, {p.name: p.read_bytes() for p in out.iterdir()})
+
+    def test_optional_table_history_never_inherits_latest_top_level(self):
+        captured = json.loads((ROOT/'tests/fixtures/v020_manifest.json').read_text())
+        manifest = captured['manifest']
+        self.assertEqual(captured['old_tag'], 'v0.2.0')
+        out = self.root / 'legacy'
+        out.mkdir()
+        for field, value in [('source_revision', {'status': 'unknown', 'documents': []}),
+                             ('boundary', {'edition': 'latest'}), ('data_years', [9999])]:
+            manifest[field] = value
+        # Earlier development manifests also wrote explicit null identity fields.
+        manifest['tables']['G02'].update(
+            {field: None for field in ['census_year', 'profile', 'data_years', 'boundary']})
+        (out/'2021_GCP_POA_NSW_manifest.json').write_text(json.dumps(manifest))
+        etl.export_census(source_zip=self.new, tables=['G01'], out=out)
+        final = json.loads((out/'2021_GCP_POA_NSW_manifest.json').read_text())
+        legacy = final['tables']['G02']
+        self.assertIsNone(legacy['source_revision'])
+        self.assertEqual(legacy['census_year'], 2021, 'legacy identity was not derived')
+        self.assertEqual(legacy['profile'], 'GCP')
+        self.assertEqual(legacy['data_years'], [2021])
+        self.assertEqual(legacy['boundary'], etl._boundary_details('POA', 2021))
+        self.assertEqual(legacy['source_sha256'], manifest['tables']['G02']['source_sha256'])
+        self.assertNotIn('writer_version', legacy)
+        self.assertEqual(final['tables']['G01']['data_years'], [2021])
+
+    def test_unsupported_manifest_schema_fails_before_source(self):
+        for schema in [0, 2, True, 1.0, '1', None]:
+            out = self.root / f'schema-{schema!r}'
+            etl.export_census(source_zip=self.new, out=out)
+            path = out/'2021_GCP_POA_NSW_manifest.json'
+            manifest = json.loads(path.read_text())
+            manifest['manifest_schema_version'] = schema
+            manifest['asgs_edition'] = 999
+            path.write_text(json.dumps(manifest))
+            with patch.object(etl, 'ZipFile', side_effect=AssertionError('source accessed')):
+                with self.assertRaisesRegex(ValueError, 'Unsupported manifest schema'):
+                    etl.export_census(source_zip=self.new, out=out)
+
+    def test_revision_documents_preserve_bytes_encoding_and_table_history(self):
+        old_revision = b'# First revision\nG14 updated\n'
+        latest_revision = '# Second revision \u2013 G36 renamed\n'.encode('cp1252')
+        out = self.root / 'revisions'
+        for body, table in [(old_revision, 'G01'), (latest_revision, 'G04')]:
+            source = geography_pack(self.root / f'{table}.zip', 'POA', revision=body)
+            etl.export_census(year=2016, source_zip=source, tables=[table], out=out)
+        result = json.loads((out/'2016_GCP_POA_NSW_manifest.json').read_text())
+        self.assertEqual(result['tables']['G01']['source_revision']['status'], 'documented')
+        self.assertEqual(result['tables']['G01']['source_revision']['documents'][0]['encoding'], 'ascii')
+        latest = result['tables']['G04']['source_revision']['documents'][0]
+        self.assertEqual(latest['encoding'], 'cp1252')
+        self.assertTrue(latest['encoding_inferred'])
+        self.assertNotIn('text', latest)
+        self.assertIn('\u2013', result['source_documents'][latest['sha256']]['text'])
+        import hashlib
+        self.assertEqual(latest['sha256'], hashlib.sha256(latest_revision).hexdigest())
+        source = geography_pack(self.root/'bom.zip', 'POA', revision=b'\xef\xbb\xbf# BOM release\n')
+        with ZipFile(source) as archive:
+            document = etl._source_revision(archive)['documents'][0]
+        self.assertEqual(document['encoding'], 'utf-8-sig')
+        self.assertEqual(document['text'], '# BOM release\n')
+
+    def test_year_specific_download_url_is_recorded_by_exports(self):
+        class Response:
+            def __init__(self, body): self.body = body
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def raise_for_status(self): pass
+            def iter_content(self, **kwargs): yield self.body
+        for year, source in [(2016, self.old), (2021, self.new)]:
+            out = self.root / f'download-{year}'
+            with patch.object(etl.requests, 'get', return_value=Response(source.read_bytes())) as get:
+                etl.export_census(year=year, cache_dir=self.root / f'cache-{year}', out=out)
+            url = etl.datapack_url('POA', 'NSW', year=year)
+            self.assertEqual(get.call_args.args[0], url)
+            manifest = json.loads((out / f'{year}_GCP_POA_NSW_manifest.json').read_text())
+            self.assertEqual(manifest['source_url'], url, 'source URL lost selected year')
+
+
+    def test_boundary_editions_and_administrative_types_are_explicit(self):
+        for year, edition in [(2016, 2), (2021, 3)]:
+            for geo in etl._vintage(year)['columns']:
+                boundary = etl._boundary_details(geo, year)
+                self.assertEqual(boundary['edition'], edition, 'wrong boundary edition')
+                self.assertEqual(boundary['geography'], geo)
+                structure = ('main_structure' if geo in {'SA1', 'SA2', 'SA3', 'SA4', 'STE'}
+                             else 'non_abs_structure')
+                self.assertEqual(boundary['structure'], structure, 'wrong ABS structure')
+                if geo in {'LGA', 'SED', 'CED', 'STE'}:
+                    self.assertEqual(boundary['boundary_type'], 'administrative',
+                                     'wrong administrative boundary type')
+                elif geo == 'POA':
+                    self.assertEqual(boundary['boundary_type'], 'postal_approximation',
+                                     'wrong postal boundary type')
+                elif geo in {'SSC', 'SAL'}:
+                    self.assertEqual(boundary['boundary_type'], 'locality',
+                                     'wrong locality boundary type')
+                else:
+                    self.assertEqual(boundary['boundary_type'], 'statistical')
+
+    def test_unmarked_utf8_revision_encoding_is_inferred(self):
+        source = geography_pack(self.root/'inferred.zip', 'POA', revision=b'\xc3\xa9')
+        with ZipFile(source) as archive:
+            doc = etl._source_revision(archive)['documents'][0]
+        self.assertEqual(doc['encoding'], 'utf-8')
+        self.assertTrue(doc['encoding_inferred'], 'unmarked encoding must be inferred')
+
+    def test_revision_size_and_decoding_failures_do_not_block_exports(self):
+        import hashlib
+        for body, status in [(b'x' * (2 * 1024 * 1024 + 1), 'oversize'),
+                             (b'bad byte \x81', 'undecodable')]:
+            source = geography_pack(self.root/(status+'.zip'), 'POA', revision=body)
+            out = self.root/status
+            etl.export_census(year=2016, source_zip=source, out=out)
+            result = json.loads((out/'2016_GCP_POA_NSW_manifest.json').read_text())
+            doc = result['source_revision']['documents'][0]
+            self.assertEqual(doc.get('status'), status, 'advisory document status lost')
+            self.assertEqual(result['source_revision']['status'], 'unavailable',
+                             'unavailable revision status lost')
+            self.assertIsNone(doc['encoding'])
+            self.assertIsNone(doc['encoding_inferred'])
+            self.assertEqual(doc['text_status'], status)
+            self.assertEqual(doc['sha256'], hashlib.sha256(body).hexdigest())
+            self.assertNotIn('text', doc)
+            self.assertIsNone(result['source_documents'][doc['sha256']]['text'])
+            self.assertTrue((out/'2016_GCP_POA_NSW_G01_wide.csv').is_file())
+            with ZipFile(source) as archive:
+                self.assertEqual(etl._source_revision(archive)['status'], 'unavailable',
+                                 'raw unavailable revision status lost')
+
+    def test_revision_text_is_stored_once_and_pruned_when_unreferenced(self):
+        body = b'# Documented revision\n' + b'x'*200000
+        source = geography_pack(self.root/'large-document.zip', 'POA', revision=body)
+        out = self.root/'deduplication'
+        etl.export_census(year=2016, source_zip=source, tables=['G01', 'G04'], out=out)
+        path = out/'2016_GCP_POA_NSW_manifest.json'
+        self.assertLess(path.stat().st_size, 230000, 'revision text was duplicated')
+        manifest = json.loads(path.read_text())
+        self.assertEqual(len(manifest['source_documents']), 1)
+        self.assertNotIn('text', manifest['tables']['G01']['source_revision']['documents'][0])
+        source = geography_pack(self.root/'no-document.zip', 'POA')
+        etl.export_census(year=2016, source_zip=source, tables=['G01'], out=out)
+        self.assertEqual(len(json.loads(path.read_text())['source_documents']), 1)
+        etl.export_census(year=2016, source_zip=source, tables=['G04'], out=out)
+        self.assertEqual(json.loads(path.read_text())['source_documents'], {})
+
+    def test_current_writer_version_is_recorded_without_inventing_legacy_writer(self):
+        import tomllib
+        with (ROOT/'pyproject.toml').open('rb') as source:
+            expected = tomllib.load(source)['project']['version']
+        self.assertEqual(etl._writer_version(), expected)
+        out = self.root/'writer-version'
+        etl.export_census(year=2016, source_zip=self.old, out=out)
+        manifest = json.loads((out/'2016_GCP_POA_NSW_manifest.json').read_text())
+        self.assertEqual(manifest['writer_version'], expected)
+        self.assertEqual(manifest['tables']['G01']['writer_version'], expected)
+
+    def test_forged_stored_document_is_refused_before_source(self):
+        source = geography_pack(self.root/'document.zip', 'POA', revision=b'# Real wording\n')
+        out = self.root/'forged-store'
+        etl.export_census(year=2016, source_zip=source, out=out)
+        path = out/'2016_GCP_POA_NSW_manifest.json'
+        manifest = json.loads(path.read_text())
+        document = next(iter(manifest['source_documents'].values()))
+        document['text'] = 'FORGED TEXT'
+        path.write_text(json.dumps(manifest))
+        with patch.object(etl, 'ZipFile', side_effect=AssertionError('source accessed')):
+            with self.assertRaisesRegex(ValueError, 'Revision document SHA-256 mismatch'):
+                etl.export_census(year=2016, source_zip=source, out=out)
+        self.assertEqual(json.loads(path.read_text()), manifest)
+
+    def test_stored_document_hash_roundtrips_each_supported_encoding(self):
+        for encoding, body in [('ascii', b'# Revision\n'),
+                               ('utf-8', '# Revision é\n'.encode('utf-8')),
+                               ('utf-8-sig', '# Revision é\n'.encode('utf-8-sig')),
+                               ('cp1252', '# Revision –\n'.encode('cp1252'))]:
+            source = geography_pack(self.root/(encoding+'.zip'), 'POA', revision=body)
+            out = self.root/encoding
+            etl.export_census(year=2016, source_zip=source, out=out)
+            etl.export_census(year=2016, source_zip=source, tables=['G04'], out=out)
+            manifest = json.loads((out/'2016_GCP_POA_NSW_manifest.json').read_text())
+            doc = manifest['tables']['G01']['source_revision']['documents'][0]
+            self.assertEqual(doc['encoding'], encoding)
+            self.assertEqual(doc['text_status'], 'available')
+            self.assertEqual(len(manifest['source_documents']), 1)
+
+    def test_contradictory_retained_table_identity_is_refused_before_source(self):
+        out = self.root/'contradictory'
+        etl.export_census(source_zip=self.new, tables=['G01', 'G02'], out=out)
+        path = out/'2021_GCP_POA_NSW_manifest.json'
+        original = json.loads(path.read_text())
+        for field, value in [('census_year', 2016), ('profile', 'TSP'),
+                             ('data_years', [2011]), ('boundary', {'structure': 'statistical'})]:
+            manifest = json.loads(json.dumps(original))
+            manifest['tables']['G02'][field] = value
+            path.write_text(json.dumps(manifest))
+            with patch.object(etl, 'ZipFile', side_effect=AssertionError('source accessed')):
+                with self.assertRaisesRegex(ValueError, 'Incompatible existing manifest.*contradicts'):
+                    etl.export_census(source_zip=self.new, out=out)
+            self.assertEqual(json.loads(path.read_text()), manifest)
+
+    def test_malformed_revision_and_store_are_clean_preflight_errors(self):
+        source = geography_pack(self.root/'shape.zip', 'POA', revision=b'# Revision\n')
+        out = self.root/'shapes'
+        etl.export_census(year=2016, source_zip=source, out=out)
+        path = out/'2016_GCP_POA_NSW_manifest.json'
+        original = json.loads(path.read_text())
+        variants = []
+        for revision in [5, [], {}, {'status': 'documented', 'documents': 5},
+                         {'status': [], 'documents': []},
+                         {'status': 'documented', 'documents': [5]},
+                         {'status': 'documented', 'documents': [{'status': []}]},
+                         {'status': 'documented', 'documents': [{'sha256': 'bad'}]}]:
+            for location in ['table', 'summary']:
+                manifest = json.loads(json.dumps(original))
+                target = manifest['tables']['G01'] if location == 'table' else manifest
+                target['source_revision'] = revision
+                variants.append(manifest)
+        for key, value in [('encoding', ['bad']), ('encoding_inferred', []),
+                           ('sha256', []), ('member', []), ('text_status', [])]:
+            manifest = json.loads(json.dumps(original))
+            manifest['tables']['G01']['source_revision']['documents'][0][key] = value
+            variants.append(manifest)
+        for store in [None, [], {'bad': {}}, {'a'*64: []},
+                      {'a'*64: {'status': [], 'text': 'wording'}}]:
+            manifest = json.loads(json.dumps(original))
+            manifest['source_documents'] = store
+            variants.append(manifest)
+        for manifest in variants:
+            path.write_text(json.dumps(manifest))
+            stderr = io.StringIO()
+            with patch('sys.stderr', stderr), patch.object(etl, 'ZipFile',
+                    side_effect=AssertionError('source accessed')):
+                self.assertEqual(etl.cli(['--geo', 'POA', '--year', '2016', '--zip', str(source),
+                                           '--out', str(out)]), 1)
+            self.assertIn('ERROR: Invalid existing manifest:', stderr.getvalue())
+            self.assertIn('fresh output folder', stderr.getvalue())
+            self.assertNotIn('Traceback', stderr.getvalue())
+
+    def test_unreleased_inline_documents_are_refused_not_migrated(self):
+        source = geography_pack(self.root/'inline.zip', 'POA', revision=b'# Revision\n')
+        out = self.root/'inline-format'
+        etl.export_census(year=2016, source_zip=source, out=out)
+        path = out/'2016_GCP_POA_NSW_manifest.json'
+        manifest = json.loads(path.read_text())
+        reference = manifest['tables']['G01']['source_revision']['documents'][0]
+        reference['text'] = '# Revision\n'
+        path.write_text(json.dumps(manifest))
+        with patch.object(etl, 'ZipFile', side_effect=AssertionError('source accessed')):
+            with self.assertRaisesRegex(ValueError, 'regenerate unreleased inline documents'):
+                etl.export_census(year=2016, source_zip=source, out=out)
+
+    def assert_provenance_refused(self, name, revision, change, message):
+        """Each case is otherwise valid, so only the guard under test can refuse it."""
+        source = geography_pack(self.root/(name+'.zip'), 'POA', revision=revision)
+        out = self.root/name
+        etl.export_census(year=2016, source_zip=source, out=out)
+        path = out/'2016_GCP_POA_NSW_manifest.json'
+        manifest = json.loads(path.read_text())
+        # The summary and the G01 table both refer to the single stored document.
+        change(next(iter(manifest['source_documents'].values())),
+               [entry['source_revision']['documents'][0]
+                for entry in [manifest, manifest['tables']['G01']]])
+        path.write_text(json.dumps(manifest))
+        with patch.object(etl, 'ZipFile', side_effect=AssertionError(
+                'source accessed despite ' + name)):
+            with self.assertRaisesRegex(ValueError, message):
+                etl.export_census(year=2016, source_zip=source, out=out)
+        self.assertEqual(json.loads(path.read_text()), manifest)
+
+    def test_unavailable_stored_document_with_text_is_refused(self):
+        # Oversize/undecodable bodies are never rehashed, so text must stay null.
+        def forge(document, references):
+            document['text'] = 'FORGED TEXT'
+        self.assert_provenance_refused('unavailable-text', b'bad byte \x81', forge,
+                                       'Unavailable revision document must have null text')
+
+    def test_valid_reference_disagreeing_with_store_is_refused(self):
+        def disagree(document, references):
+            references[-1].update(encoding='utf-8', encoding_inferred=True)
+        self.assert_provenance_refused('reference-disagreement', b'# Revision\n', disagree,
+                                       'Revision reference disagrees with stored document')
+
+    def test_inconsistent_encoding_inference_is_refused(self):
+        for name, body in [('ascii-inference', b'# Revision\n'),
+                           ('cp1252-inference', '# Revision –\n'.encode('cp1252'))]:
+            def flip(document, references):
+                for record in [document, *references]:
+                    record['encoding_inferred'] = not record['encoding_inferred']
+            with self.subTest(name=name):
+                self.assert_provenance_refused(name, body, flip,
+                                               'Invalid revision encoding inference')
+
+    def test_empty_revision_member_is_refused(self):
+        def empty(document, references):
+            references[-1]['member'] = ''
+        self.assert_provenance_refused('empty-member', b'# Revision\n', empty,
+                                       'Invalid revision reference')
+
+    def test_missing_retained_document_text_is_explicit_and_restorable(self):
+        source = geography_pack(self.root/'retained.zip', 'POA', revision=b'# Retained\n')
+        out = self.root/'missing-text'
+        etl.export_census(year=2016, source_zip=source, out=out)
+        path = out/'2016_GCP_POA_NSW_manifest.json'
+        manifest = json.loads(path.read_text())
+        manifest.pop('source_documents')  # Same loss as a 0.2.0 write.
+        path.write_text(json.dumps(manifest))
+        other = geography_pack(self.root/'other.zip', 'POA')
+        etl.export_census(year=2016, source_zip=other, tables=['G04'], out=out)
+        manifest = json.loads(path.read_text())
+        history = manifest['tables']['G01']['source_revision']
+        self.assertEqual(history['status'], 'unavailable', 'lost document text not reflected')
+        self.assertEqual(history['documents'][0]['text_status'], 'missing')
+        etl.export_census(year=2016, source_zip=source, tables=['G04'], out=out)
+        # Availability is finalized against all documents in the new inventory.
+        manifest = json.loads(path.read_text())
+        self.assertIn(history['documents'][0]['sha256'], manifest['source_documents'])
+        restored = manifest['tables']['G01']['source_revision']
+        self.assertEqual(restored['status'], 'documented')
+        self.assertEqual(restored['documents'][0]['text_status'], 'available')
+
+    def test_writer_version_metadata_must_own_the_running_module(self):
+        copied = self.root/'copied.py'
+        copied.write_text('# copied module identity fixture')
+        class Metadata:
+            version = '0.1.0.dev0'
+            files = ['abs_census_etl.py']
+            def locate_file(self, file): return ROOT/file
+        with patch.object(etl, '__file__', str(copied)):
+            with patch.object(etl, 'distribution', return_value=Metadata()):
+                self.assertEqual(etl._writer_version(), 'unknown', 'unowned metadata accepted')
+            with patch.object(etl, 'distribution', side_effect=etl.PackageNotFoundError('abs-census-etl')):
+                self.assertEqual(etl._writer_version(), 'unknown')
+            class Owner(Metadata):
+                version = '9.9.9'
+                def locate_file(self, file): return copied
+            with patch.object(etl, 'distribution', return_value=Owner()):
+                self.assertEqual(etl._writer_version(), '9.9.9')
+
+    def test_writer_version_ignores_unrelated_neighbouring_pyproject(self):
+        folder = self.root/'vendored'
+        folder.mkdir()
+        module = folder/'abs_census_etl.py'
+        module.write_text('# vendored module identity fixture')
+        project = folder/'pyproject.toml'
+        with patch.object(etl, '__file__', str(module)), patch.object(
+                etl, 'distribution', side_effect=etl.PackageNotFoundError('abs-census-etl')):
+            project.write_text('[project]\nname = "host-project"\nversion = "9.9.9"\n')
+            self.assertEqual(etl._writer_version(), 'unknown', 'unrelated project version accepted')
+            project.write_text('[project]\nname = "abs-census-etl"\nversion = "1.2.3"\n')
+            self.assertEqual(etl._writer_version(), '1.2.3')
+            project.write_text('[project\n')
+            self.assertEqual(etl._writer_version(), 'unknown')
+
+    def test_copied_module_exports_with_unknown_writer_version(self):
+        copied = self.root/'abs_census_etl.py'
+        shutil.copy2(ROOT/'abs_census_etl.py', copied)
+        out = self.root/'copied-output'
+        result = subprocess.run([sys.executable, str(copied), '--geo', 'POA',
+                                 '--zip', str(self.new), '--out', str(out)],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads((out/'2021_GCP_POA_NSW_manifest.json').read_text())
+        self.assertEqual(manifest['writer_version'], 'unknown')
+        self.assertEqual(manifest['tables']['G01']['writer_version'], 'unknown')
+        self.assertNotIn('Traceback', result.stderr)
+
+    def test_wrong_asgs_edition_is_refused_before_source(self):
+        out = self.root / 'wrong-edition'
+        etl.export_census(year=2016, source_zip=self.old, out=out)
+        path = out/'2016_GCP_POA_NSW_manifest.json'
+        manifest = json.loads(path.read_text())
+        manifest['asgs_edition'] = 3
+        path.write_text(json.dumps(manifest))
+        with patch.object(etl, 'ZipFile', side_effect=AssertionError('source accessed')):
+            with self.assertRaisesRegex(ValueError, 'Incompatible existing manifest'):
+                etl.export_census(year=2016, source_zip=self.old, out=out)
+
+    def test_old_writer_source_requires_exact_checkout_and_published_hash(self):
+        import runpy
+        checks = runpy.run_path(str(ROOT/'tests/check_compat.py'))
+        child = self.root/'archive'
+        child.mkdir()
+        class Result:
+            returncode = 0
+            stdout = str(self.root)
+        with patch.object(subprocess, 'run', return_value=Result()):
+            with self.assertRaisesRegex(RuntimeError, 'parent repository'):
+                checks['read_old_source'](child)
+        class Source:
+            returncode = 0
+            stdout = b'forged old writer'
+        Result.stdout = str(child)
+        with patch.object(subprocess, 'run', side_effect=[Result(), Source()]):
+            with self.assertRaisesRegex(RuntimeError, 'source SHA-256 differs'):
+                checks['read_old_source'](child)
+
+    def test_actual_old_writer_check_reports_missing_tag_clearly(self):
+        import runpy
+        checks = runpy.run_path(str(ROOT/'tests/check_compat.py'))
+        with self.assertRaisesRegex(RuntimeError, 'needs a Git checkout containing'):
+            checks['read_old_source'](self.root)
+
+    @unittest.skipUnless(etl.find_spec('pyarrow'), 'optional pyarrow not installed')
+    def test_both_years_parquet_long_exports_preserve_bare_nt_codes(self):
+        for year in [2016, 2021]:
+            source = year_pack(self.root / f'nt-{year}.zip', year=year, state='NT', bare=True)
+            out = self.root / f'parquet-{year}'
+            files = etl.export_census(year=year, state='NT', source_zip=source,
+                                      tables=['G04'], codes=[800], out=out,
+                                      long=True, file_format='parquet')
+            frame = pd.read_parquet(files['G04'])
+            self.assertEqual(frame.columns.tolist(), [f'POA_CODE_{year}', 'variable', 'value'])
+            self.assertEqual(frame.iloc[:, 0].tolist(), ['0800', '0800'])
+
+    def test_genuine_data_checker_offline_mode_never_downloads_or_silently_passes(self):
+        import runpy
+        checks = runpy.run_path(str(ROOT/'tests/check_abs_data.py'))
+        with patch.object(etl.requests, 'get', side_effect=AssertionError('network')):
+            with self.assertRaisesRegex(RuntimeError, 'Missing offline pack'):
+                checks['main'](['--year', '2016', '--offline', '--geographies', 'POA',
+                                '--state', 'NSW', '--cache-dir', str(self.root/'absent')])
+            with self.assertRaisesRegex(RuntimeError, 'No checks selected'):
+                checks['main'](['--year', '2016', '--offline', '--geographies', 'POA',
+                                '--state', 'OT', '--cache-dir', str(self.root)])
+            page = self.root/'POA2000.html'
+            page.write_text('<p>Area code POA2000 People 27,411 Male 50% Median age 30</p>')
+            import hashlib
+            sidecar = page.with_suffix('.json')
+            sidecar.write_text(json.dumps({
+                'url': 'https://www.abs.gov.au/census/find-census-data/quickstats/2016/POA2000',
+                'file': page.name, 'sha256': hashlib.sha256(page.read_bytes()).hexdigest()}))
+            with self.assertRaisesRegex(RuntimeError, 'QuickStats reviewed SHA-256 mismatch'):
+                checks['save_reference']((27411, 30, 'POA2000'), self.root,
+                                         year=2016, offline=True)
+            # Test parser mechanics with an explicit synthetic pin; not real-data evidence.
+            with patch.dict(checks['REFERENCE_SHA256'],
+                            {(2016, 'POA2000'): hashlib.sha256(page.read_bytes()).hexdigest()}):
+                result = checks['save_reference']((27411, 30, 'POA2000'), self.root,
+                                                   year=2016, offline=True)
+            self.assertTrue(result['offline_reuse'])
+            self.assertIsNone(result['retrieved_utc'])
+            self.assertIn('/2016/POA2000', result['url'])
+            page.write_text(page.read_text() + '<!-- changed -->')
+            with self.assertRaisesRegex(RuntimeError, 'QuickStats SHA-256 mismatch'):
+                checks['save_reference']((27411, 30, 'POA2000'), self.root,
+                                         year=2016, offline=True)
+            sidecar.unlink()
+            with self.assertRaisesRegex(RuntimeError, 'Missing QuickStats integrity sidecar'):
+                checks['save_reference']((27411, 30, 'POA2000'), self.root,
+                                         year=2016, offline=True)
+
 
 if __name__ == '__main__':
     unittest.main()

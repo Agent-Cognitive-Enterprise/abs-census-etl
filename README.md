@@ -1,17 +1,19 @@
 # ABS Census ETL
 
-Read **2021 Census General Community Profile (GCP)** DataPack ZIPs from the Australian
-Bureau of Statistics (ABS). Select geographic areas and variables, discover table
+Read **2016 and 2021 Census General Community Profile (GCP)** DataPack ZIPs
+from the Australian Bureau of Statistics (ABS). Select geographic areas and variables, discover table
 and variable descriptions, join split tables, and export CSV or optional Parquet.
 Geography codes stay strings,
 preserving leading zeros such as Darwin `0800`.
 
-Version **0.2.0** adds broader geography support, searchable ABS metadata,
-strict numeric validation and source ZIP hashes. Published 0.2.0 installers and
-wheels support Census 2021. This unreleased source adds **2016 POA loading and
-metadata discovery** with explicit `year=2016` / `--year 2016`; it does not yet
-export 2016 data or support other 2016 geographies. Use [source setup](#setup)
-for these additions. See [the changelog](CHANGELOG.md) for details.
+The latest published release, **0.2.0**, adds broader geography support, searchable
+ABS metadata, strict numeric validation and source ZIP hashes. Its installers and
+wheels support Census 2021. This checkout is the unreleased development version
+**0.3.0.dev0**, which adds **2016 GCP loading, metadata discovery and CSV/Parquet
+export** for all ten supported 2016 geographies with explicit `year=2016` /
+`--year 2016`. The default remains 2021. Use [source setup](#setup) with this
+checkout for these additions; released 0.2.0 installers, wheels and source archives
+do not include them. See [the changelog](CHANGELOG.md) for details.
 
 ## Use and responsibility
 
@@ -168,8 +170,8 @@ workbook included in the complete ABS pack, without reading measure rows or
 writing exports. `--search` is a case-insensitive literal match, not a regular
 expression. Results are tab-separated; zero matches produce just the headings.
 
-Supported 2021 geographies are **POA, SA1, SA2, SA3, SA4, LGA, SED, CED, STE and
-SAL**. For example, use `--geo LGA --codes 17200` for Sydney in the NSW LGA pack,
+Supported geographies are **POA, SA1, SA2, SA3, SA4, LGA, SED, CED and STE**, plus
+**SSC for 2016** or **SAL for 2021**. For example, use `--geo LGA --codes 17200` for Sydney in the NSW LGA pack,
 or `--geo SA2 --codes 101021007` for Braidwood. Filters accept prefixed or bare
 codes; returned codes retain the source format. Geography/state must match the
 pack; this does not convert boundaries or combine Census years. See the
@@ -210,6 +212,19 @@ df = load_census(geo="POA", state="NSW", table="G01", codes=["2000"])
 The managed installer is for the standalone CLI. It keeps its own environment
 and does not add imports to your other Python projects.
 
+## Read an earlier Census
+
+Census 2016 support is in development version 0.3.0.dev0 only; published 0.2.0
+does not accept `--year`. Use [source setup](#setup) with this checkout.
+Use explicit `--year 2016` in the CLI or `year=2016` in Python. Each year uses
+its own identifiers, output filenames and manifest; 2021 stays the default.
+2016 SA1 uses seven-digit codes and SA2 uses `SA2_MAINCODE_2016`. SSC and SAL are
+different geographies, not aliases. Matching code/column names do not establish
+comparable boundaries or statistics across years. See the
+[data guide](docs/data-guide.md#census-years-and-geography) for examples and
+revision/boundary provenance. Only GCP is supported; Time Series Profiles and
+automatic historical comparisons are outside the current scope.
+
 ## Setup
 
 For a released version, open the repository's **Releases** page and download
@@ -230,8 +245,9 @@ already extracted the download, only run the `cd` line. Run the commands below i
 documentation and ETL tests. Avoid GitHub's automatic source snapshots when you want
 the verified application release archive.
 
-If no release exists, **Code → Download ZIP** or a Git clone provides unreleased
-source for development; it is not a release. The ZIP extracts to an
+For unreleased development source, such as 0.3.0.dev0 with Census 2016 support,
+or if no release exists, **Code → Download ZIP** or a Git clone provides that
+source; it is not a release. The ZIP extracts to an
 `abs-census-etl-main` folder and a clone creates `abs-census-etl`; open the terminal
 inside that folder. Python **3.14** is required for source setup. Managed
 installers above are alternatives. Historical native

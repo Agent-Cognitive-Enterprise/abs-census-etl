@@ -1,0 +1,41 @@
+"""Offline runtime selection over the accepted 100-pair structural survey."""
+from pathlib import Path
+import hashlib,io,json,sys
+from zipfile import ZipFile
+sys.path.insert(0,str(Path.cwd()))
+sys.path.insert(0,str(Path('docs/research/slice11').resolve()))
+import abs_census_etl as etl
+from evidence import SavedRanges,verify_manifest
+prior=Path('docs/evidence/20261020-slice11')
+main=Path('docs/evidence/20261020-slice11-all-state')
+verify_manifest(prior,prior/'manifest.json','f28c9925be9d821c2e3af628cc758816a642fdf8826b7fb6a0c8b9ca40789890')
+verify_manifest(main,main/'manifest.json','d8ac1529c12e6a46508e0f012a58bde094504f4bf5ea6dd2ef0dbf1e769825f9')
+old=json.loads((prior/'ledger.json').read_text())['requests']
+new=json.loads((main/'ledger.json').read_text())['requests']
+rows=[]
+for cell in json.loads((main/'matrix.json').read_text())['cells']:
+ geo,state=cell['geography'],cell['state']
+ etl._validate_geography(geo,state,year=2016)
+ if (geo,state)==('POA','NSW'):
+  stream=(prior/'2016_GCP_POA_for_NSW_short-header.zip').open('rb')
+ else:
+  reuse=cell['evidence_origin'].startswith('offline reuse')
+  stream=io.BufferedReader(SavedRanges(prior if reuse else main,old if reuse else new,cell['url']))
+ with stream,ZipFile(stream) as archive:
+  etl._check_archive(archive,2016,geo=geo)
+  tables=etl._available_table_ids(archive,geo,state,year=2016)
+  assert len(tables)==59
+  parts=[]
+  for table in tables:
+   selected=etl.find_members(archive,table,geo,state,year=2016)
+   assert selected==etl.find_members(archive,table,geo,year=2016)
+   parts.extend(selected)
+  assert len(parts)==len(set(parts))==110
+  try:etl._check_archive(archive,2021,geo=geo)
+  except ValueError:pass
+  else:raise AssertionError('Wrong year accepted')
+ rows.append({'geography':geo,'state':state,'tables':59,'parts':110,'inference_matches':True})
+print('PASS: actual runtime selection/inference and wrong-year refusal for all 100 real 2016 combinations')
+Path('docs/evidence/20261020-slices13-15/all-state-runtime.json').write_text(json.dumps(
+ {'network_used':False,'runtime_sha256':hashlib.sha256(Path('abs_census_etl.py').read_bytes()).hexdigest(),
+  'scope':'archive identity and member selection, not full payload validation','results':rows},indent=2)+'\n')

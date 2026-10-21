@@ -2,29 +2,42 @@
 
 ## Unreleased
 
-- Add explicit integer `year` selection (default 2021) and CLI `--year` for
-  2016 POA loading, table listing and variable discovery across all state and
-  national selections. Preserve the source vintage in code-column names; 2016
-  exports and other 2016 geographies are not enabled in this increment.
-- Refuse wrong-year, mixed-year and non-GCP source identities with explicit
-  diagnostics. Invalid explicit source identity leaves fresh export folders
-  absent and existing empty folders unchanged, without creating a lock file.
-  Validate download identity before publishing a cache entry; invalid existing
-  cache entries name the archive and explain how to move it aside.
-- Geography and state API inputs now accept surrounding whitespace, including
-  for 2021 exports. Direct `find_members` and `combine_table` calls now require
-  a recognizably single-year GCP archive, rejecting mixed/unknown identities
-  that earlier versions could filter. Existing 2021 defaults and export/manifest
-  names remain unchanged.
-- Explicit-ZIP exports check recovery journals, targets, permissions and existing
-  manifests before opening the source. A folder with a lock file is locked first, so
-  a running export is reported busy without its staging state being inspected; a
-  folder without one is checked unlocked, then again under the new lock. Orphan
-  staging warnings also appear on format-conflict failure, without duplicates across
-  the two checks. Payload reads and downloads remain protected by the output lock.
-- Cache identity errors name the requested cache path once and explain recovery;
-  rejected downloads, including corrupt or non-ZIP responses, omit temporary paths
-  and identify the source URL to report if retrying the download fails again.
+- Support explicit 2016 GCP alongside the unchanged 2021 default: POA, SA1–SA4,
+  LGA, SED, CED, STE and SSC in all states/territories and national AUS. SAL remains
+  2021-only; SSC/SAL and seven-/eleven-digit SA1 identifiers are never translated.
+- Load, discover and export CSV/Parquet in both years, preserving source header
+  names, with separate year-qualified caches, files, manifests and format checks.
+  Cooperating exports for either year share the same output-directory lock.
+- Add manifest schema version 1 and optional per-table boundary/revision facts.
+  Preserve existing 2021 identity fields and real 0.2.0 writer compatibility;
+  derive known legacy identity from validated year/geography while keeping
+  unknown revisions and hashes separate from latest-call summaries. Use Main
+  Structure/Non-ABS Structure labels and administrative type for state borders.
+  Retain document text once by SHA-256; oversized/undecodable advisory documents
+  retain status and hash without blocking export. Mark unlabelled encodings as
+  inferred, and refuse newer manifest schemas before identity/deletion advice.
+- Validate retained document hashes, reference/store shapes and table identity
+  before reading the source. Reject unreleased inline-document/old boundary
+  formats; regenerate those local exports. Mark missing document text explicitly
+  and restore availability when the same bytes are supplied again.
+- Unreadable advisory documents have null encoding and inference. Offline ABS
+  reference checks require reviewed capture hashes pinned in the checker source.
+  Copied modules record an unknown writer version when no distribution owns them.
+- Set the unreleased source version to 0.3.0.dev0 and record each new manifest's
+  and table's writer version; historical writer versions are not invented.
+- Geography/state API inputs accept surrounding whitespace. Direct table helpers
+  require recognizably single-year GCP archives; mixed/unknown identities that
+  earlier versions could filter now fail. Refuse unsupported years/profiles early.
+  Unsupported CLI year/geography combinations are argument errors (exit 2).
+- Validate download identity before caching. Invalid cache errors name the useful
+  path and recovery; rejected downloads identify the source URL instead of a
+  deleted temporary path. Destination preflights retain journal, permission,
+  manifest, symlink and format protections and orphan warnings on failure.
+- Existing output lock files are locked before source access. Without a lock,
+  explicit ZIPs receive destination checks before they are opened; invalid source
+  identity creates no new lock file, including in an existing empty folder.
+- Add year-aware genuine-data checks and a re-runnable real 0.2.0 compatibility
+  check, with expanded installed source/wheel and offline regression coverage.
 
 ## 0.2.0 — 2026-10-20
 

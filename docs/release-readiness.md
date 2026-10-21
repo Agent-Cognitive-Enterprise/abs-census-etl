@@ -4,6 +4,11 @@ This checkout-only snapshot is excluded from application archives. Refresh it
 before a later release. Publication results belong in the daily progress record;
 a candidate checklist is not proof that its release workflow passed.
 
+Status: 0.2.0 was published on 2026-10-20 (publish run 39372369628; tag on
+bdd5d88), as recorded in docs/progress/20261020.md. The checklist below is kept as
+that release's record. The current source is development version 0.3.0.dev0; see
+the final section.
+
 ## Scope and authority
 
 The owner signed off slices 7–10 and requested “Publish next release”. That
@@ -85,3 +90,20 @@ The [README](../README.md) is the user entry point. The
 [installation guide](installation.md), [data guide](data-guide.md) and
 [release contract](release-assets.md) provide detailed procedures. No publication
 or hosted validation is claimed merely by preparing this candidate document.
+
+
+## Unreleased year-coverage handoff
+
+The development version is 0.3.0.dev0; this is not a published release.
+The working source extends GCP to explicit 2016 across the ten verified geography
+types, with year-qualified exports and optional revision/boundary provenance.
+Published 0.2.0 assets still represent 2021 support; these changes do not publish
+new assets. Before tagging, rerun unit, mutation, packaging, actual v0.2.0 writer
+compatibility and year-aware genuine-data checks, refresh the dated native
+records, and review the full delta. Also replace every 0.3.0.dev0 and
+"unreleased"/"development version" reference with the release version: the
+README intro, earlier-Census and Setup sections, the data guide intro and Census-years
+section, the development guide's native validation record, the CHANGELOG
+Unreleased heading/entry, pyproject.toml and uv.lock. See
+the current daily progress record for measured results, evidence limits and the
+user's acceptance status.

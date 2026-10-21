@@ -211,11 +211,14 @@ passed on ce34be5; each release tag must pass its own run.
 From a source checkout with development Python and uv, prepare a local bundle:
 
 ```bash
-.venv/bin/python scripts/release.py build --tag v0.2.0
-.venv/bin/python scripts/release.py verify --tag v0.2.0
+.venv/bin/python scripts/release.py build --tag vVERSION
+.venv/bin/python scripts/release.py verify --tag vVERSION
 ```
 
-Use the actual `project.version` for a release. Output defaults to `dist/release`
+Replace `VERSION` with the release's `project.version`; the script refuses a tag
+that differs from pyproject.toml or uv.lock. The published 0.2.0 release used
+`v0.2.0` on its tagged source. A development checkout such as 0.3.0.dev0 must
+first be set to its release version. Output defaults to `dist/release`
 and must be absent or empty; `--assets PATH` selects a fresh output folder.
 Builds use a temporary copy of the reviewed source allow-list and normalize file
 permissions. They leave the checkout's build state and `.venv` alone.
