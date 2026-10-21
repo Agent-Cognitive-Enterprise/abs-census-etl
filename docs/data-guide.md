@@ -5,14 +5,11 @@ need the app installed in your Python 3.14 environment, using the
 [direct module install](../README.md#install-as-a-python-module) or
 [source setup](../README.md#setup).
 
-This guide covers the latest published release, 0.2.0, including searchable
-metadata and ten supported 2021 geographies. Users of 0.1.0 should update before
-using the new APIs. It also covers the unreleased development version 0.3.0.dev0
-in this checkout, which adds 2016 GCP loading/discovery/export, year-qualified
-manifests and revision/boundary provenance as below. Those additions are not in
-the published 0.2.0 wheel, source archive or managed installation.
+This guide covers version 0.3.0: 2016 and 2021 GCP loading, discovery and export,
+year-qualified manifests and revision/boundary provenance. Update older
+installations before using the new APIs. Version 0.2.0 supports 2021 only.
 
-## Selecting a Census year (unreleased source)
+## Selecting a Census year
 
 `year` is a keyword on loading, exports, table listing and variable description. It must
 be an integer 2016 or 2021; floats, booleans and strings are rejected. The CLI uses
@@ -79,8 +76,8 @@ support Time Series Profiles, historical joins or SSC/SAL conversions.
 
 ## Census years and geography
 
-This section and its provenance subsection describe development version
-0.3.0.dev0; published 0.2.0 supports 2021 only and writes no schema version.
+Year selection and schema-1 provenance require version 0.3.0 or later.
+Version 0.2.0 supports 2021 only and writes no schema version.
 The default remains 2021; a later Census will not silently change it. Use an
 explicit `year=2016` / `--year 2016` for the original 2016 GCP. Both vintages
 support POA, SA1, SA2, SA3, SA4, LGA, SED, CED and STE; 2016 adds SSC and 2021

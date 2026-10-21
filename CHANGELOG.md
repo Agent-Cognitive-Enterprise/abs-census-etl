@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-21
 
 ### Breaking changes
 
@@ -39,8 +39,8 @@
 - Unreadable advisory documents have null encoding and inference. Offline ABS
   reference checks require reviewed capture hashes pinned in the checker source.
   Copied modules record an unknown writer version when no distribution owns them.
-- Set the unreleased source version to 0.3.0.dev0 and record each new manifest's
-  and table's writer version; historical writer versions are not invented.
+- Record each new manifest's and table's writer version; historical writer
+  versions are not invented.
 - Geography/state API inputs accept surrounding whitespace. Direct table helpers
   require recognizably single-year GCP archives; mixed/unknown identities that
   earlier versions could filter now fail. Refuse unsupported years/profiles early.

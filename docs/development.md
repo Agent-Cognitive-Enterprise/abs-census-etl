@@ -314,7 +314,7 @@ script are included in the source archive's exact allow-list.
 Maintainers refresh this dated section before each release; results apply to
 the linked commit, not automatically to every later source download.
 
-On **2026-10-20**, the latest published release, v0.2.0 (tag on commit bdd5d88),
+On **2026-10-20**, release v0.2.0 (tag on commit bdd5d88),
 passed its own [release dry run][release-dry-run] and [publish run][release-publish].
 The release workflow, unchanged since v0.1.0, ran the build, unit/mutation/packaging
 checks and native installer jobs on:
@@ -331,12 +331,12 @@ checked against the public assets on Linux, native Windows 11 x64 and native
 macOS ARM64. The earlier [v0.1.0 release validation][hosted-ci] passed on the
 same targets.
 
-These results cover the tagged 0.2.0 source only. Development version 0.3.0.dev0
-(Census 2016 support and manifest schema 1) has local Linux results only and
-needs its own release workflow on its tagged source before publication. The
-daily progress record preserves local/native feature checks and their exact
-runtime hashes, rather than treating an older hosted run as evidence for a later
-revision.
+These results cover the tagged 0.2.0 source only. The year-coverage branch's
+[hosted CI run](https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/actions/runs/39528269334)
+passed build and all five native targets on 34b83a7. Release 0.3.0 requires its
+own release workflow on the tagged source; publication and exact run results
+are recorded in the daily progress record. Earlier results do not certify a
+later revision.
 
 Earlier local runs included Linux x86-64, macOS ARM64 and Windows 11 x64. Both
 hosted and local Windows testing used restricted tokens, not a separately

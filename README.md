@@ -6,14 +6,11 @@ and variable descriptions, join split tables, and export CSV or optional Parquet
 Geography codes stay strings,
 preserving leading zeros such as Darwin `0800`.
 
-The latest published release, **0.2.0**, adds broader geography support, searchable
-ABS metadata, strict numeric validation and source ZIP hashes. Its installers and
-wheels support Census 2021. This checkout is the unreleased development version
-**0.3.0.dev0**, which adds **2016 GCP loading, metadata discovery and CSV/Parquet
-export** for all ten supported 2016 geographies with explicit `year=2016` /
-`--year 2016`. The default remains 2021. Use [source setup](#setup) with this
-checkout for these additions; released 0.2.0 installers, wheels and source archives
-do not include them. Validation covers all 59 tables in the 2016 NSW POA pack.
+Version **0.3.0** supports **2016 and 2021 GCP loading, metadata discovery and
+CSV/Parquet export** for all ten supported geographies in each year. Select
+2016 explicitly with `year=2016` / `--year 2016`; the default remains 2021.
+Update an older installation using the same installer command below.
+Validation covers all 59 tables in the 2016 NSW POA pack.
 Other geography/state payloads have not been exhaustively parsed; validation
 elsewhere ranges from archive inventories to selected-table checks. Strict numeric
 parsing may expose unexpected cells in an untested table. See the
@@ -218,8 +215,8 @@ and does not add imports to your other Python projects.
 
 ## Read an earlier Census
 
-Census 2016 support is in development version 0.3.0.dev0 only; published 0.2.0
-does not accept `--year`. Use [source setup](#setup) with this checkout.
+Census 2016 support requires version 0.3.0 or later; update older installations
+using the same installer command. Version 0.2.0 does not accept `--year`.
 Use explicit `--year 2016` in the CLI or `year=2016` in Python. Each year uses
 its own identifiers, output filenames and manifest; 2021 stays the default.
 2016 SA1 uses seven-digit codes and SA2 uses `SA2_MAINCODE_2016`. SSC and SAL are
@@ -233,7 +230,7 @@ automatic historical comparisons are outside the current scope.
 
 For a released version, open the repository's **Releases** page and download
 `abs_census_etl-VERSION.tar.gz` from that release's assets, where `VERSION` is the
-release number, such as `0.2.0`. Open a terminal in the folder containing the download
+release number, such as `0.3.0`. Open a terminal in the folder containing the download
 (usually `cd ~/Downloads`, which also works in PowerShell), then extract the archive
 and enter the folder it creates:
 
@@ -249,9 +246,8 @@ already extracted the download, only run the `cd` line. Run the commands below i
 documentation and ETL tests. Avoid GitHub's automatic source snapshots when you want
 the verified application release archive.
 
-For unreleased development source, such as 0.3.0.dev0 with Census 2016 support,
-or if no release exists, **Code → Download ZIP** or a Git clone provides that
-source; it is not a release. Open the terminal inside the extracted repository
+For unreleased development source, or if no release exists, **Code → Download ZIP**
+or a Git clone provides that source; it is not a release. Open the terminal inside the extracted repository
 directory or clone; its folder name depends on the branch or archive. Python **3.14** is required for source setup. Managed
 installers above are alternatives. Historical native
 coverage and revision limits are in

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "abs-census-etl"
-version = "0.3.0.dev0"
+version = "0.3.0"
 description = "Read and export ABS 2016 and 2021 Census GCP DataPacks"
 readme = "README.md"
 license = "MIT"
