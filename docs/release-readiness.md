@@ -6,7 +6,7 @@ a candidate checklist is not proof that its release workflow passed.
 
 Status: 0.2.0 was published on 2026-10-20 (publish run 39372369628; tag on
 bdd5d88), as recorded in docs/progress/20261020.md. The checklist below is kept as
-that release's record. The current candidate is 0.3.0; see the final section.
+that release's record. Release 0.3.0 is published; see the final section.
 
 ## Scope and authority
 
@@ -111,3 +111,9 @@ then run a disposable public installer/module smoke. Record actual commit, tag,
 run IDs and outcomes in docs/progress/20261021.md. This candidate document does
 not claim those future steps have passed. No runtime, installer, workflow or
 dependency changes are part of release preparation.
+
+Publication completed on 2026-10-21: tag a2618d5, Release run 39534391044,
+all native jobs and publication passed. The five anonymous public assets match
+the tested bundle; public Linux module/install/update checks passed. The tag
+remains fixed; the post-publication documentation commit does not change it.
+See docs/progress/20261021.md for the full handoff and validation limits.

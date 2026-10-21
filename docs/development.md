@@ -333,8 +333,12 @@ same targets.
 
 These results cover the tagged 0.2.0 source only. The year-coverage branch's
 [hosted CI run](https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/actions/runs/39528269334)
-passed build and all five native targets on 34b83a7. Release 0.3.0 requires its
-own release workflow on the tagged source; publication and exact run results
+passed build and all five native targets on 34b83a7. On **2026-10-21**, the
+[tagged 0.3.0 release workflow](https://github.com/Agent-Cognitive-Enterprise/abs-census-etl/actions/runs/39534391044)
+passed build and all five native targets on a2618d5 and published v0.3.0.
+Anonymous assets matched the tested bundle; a public Linux wheel/import and
+0.2.0-to-0.3.0 Parquet installer update smoke passed. No separate public-download
+smoke was run on Windows/macOS after publication. Exact results and limitations
 are recorded in the daily progress record. Earlier results do not certify a
 later revision.
 
